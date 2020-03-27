@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/http"
 
 	"github.com/golang/mock/gomock"
 	"github.com/lucas-clemente/quic-go"
 	mockquic "github.com/lucas-clemente/quic-go/internal/mocks/quic"
+	"github.com/marten-seemann/qpack"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -68,7 +70,7 @@ var _ = Describe("Body", func() {
 					rb = newRequestBody(str, errorCb)
 				case bodyTypeResponse:
 					reqDone = make(chan struct{})
-					rb = newResponseBody(str, reqDone, errorCb)
+					rb = newResponseBody(str, reqDone, errorCb, &http.Response{}, qpack.NewDecoder(func(f qpack.HeaderField) {}), defaultMaxResponseHeaderBytes)
 				}
 			})
 

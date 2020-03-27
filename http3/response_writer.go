@@ -9,12 +9,16 @@ import (
 
 	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/marten-seemann/qpack"
+	"golang.org/x/net/http/httpguts"
+	"golang.org/x/net/http2"
 )
 
 type responseWriter struct {
 	stream io.Writer
 
-	header        http.Header
+	header   http.Header
+	trailers []string
+
 	status        int // status code passed to WriteHeader
 	headerWritten bool
 
@@ -48,6 +52,9 @@ func (w *responseWriter) WriteHeader(status int) {
 
 	for k, v := range w.header {
 		for index := range v {
+			if k == "Trailer" {
+				w.declareTrailer(v[index])
+			}
 			enc.WriteField(qpack.HeaderField{Name: strings.ToLower(k), Value: v[index]})
 		}
 	}
@@ -80,6 +87,75 @@ func (w *responseWriter) Write(p []byte) (int, error) {
 }
 
 func (w *responseWriter) Flush() {}
+
+func (w *responseWriter) promoteTrailer() {
+	for k, vv := range w.header {
+		if !strings.HasPrefix(k, http2.TrailerPrefix) {
+			continue
+		}
+		trailerKey := strings.TrimPrefix(k, http2.TrailerPrefix)
+		w.declareTrailer(trailerKey)
+		w.header[http.CanonicalHeaderKey(trailerKey)] = vv
+	}
+}
+
+func strSliceContains(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *responseWriter) declareTrailer(k string) {
+	k = http.CanonicalHeaderKey(k)
+	if !httpguts.ValidTrailerHeader(k) {
+		// Forbidden by RFC 7230, section 4.1.2.
+		w.logger.Debugf("ignoring invalid trailer %q", k)
+		return
+	}
+	if !strSliceContains(w.trailers, k) {
+		w.trailers = append(w.trailers, k)
+	}
+}
+
+func (w *responseWriter) hasNonEmptyTrailers() bool {
+	for _, trailer := range w.trailers {
+		if _, ok := w.header[trailer]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *responseWriter) writeTrailers() {
+	w.promoteTrailer()
+
+	if !w.hasNonEmptyTrailers() {
+		return
+	}
+
+	var headers bytes.Buffer
+	enc := qpack.NewEncoder(&headers)
+	for _, trailer := range w.trailers {
+		if v, ok := w.header[trailer]; ok {
+			for _, s := range v {
+				enc.WriteField(qpack.HeaderField{Name: strings.ToLower(trailer), Value: s})
+			}
+		}
+	}
+
+	buf := &bytes.Buffer{}
+	(&headersFrame{Length: uint64(headers.Len())}).Write(buf)
+
+	if _, err := w.stream.Write(buf.Bytes()); err != nil {
+		w.logger.Errorf("could not write headers frame: %s", err.Error())
+	}
+	if _, err := w.stream.Write(headers.Bytes()); err != nil {
+		w.logger.Errorf("could not write header frame payload: %s", err.Error())
+	}
+}
 
 // test that we implement http.Flusher
 var _ http.Flusher = &responseWriter{}

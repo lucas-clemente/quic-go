@@ -7,6 +7,7 @@ import (
 
 	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/marten-seemann/qpack"
+	"golang.org/x/net/http2"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -116,5 +117,69 @@ var _ = Describe("Response Writer", func() {
 		n, err := rw.Write([]byte("foobar"))
 		Expect(n).To(BeZero())
 		Expect(err).To(MatchError(http.ErrBodyNotAllowed))
+	})
+
+	It("write announced trailer", func() {
+		rw.Header().Add("Trailer", "Key")
+		rw.Header().Add("Trailer", "Key2")
+		rw.WriteHeader(200)
+		rw.Write([]byte("foobar"))
+		rw.Header().Set("Key", "Value")
+		rw.Header().Set("Key2", "Value")
+
+		// Needs to call writeTrailers for simulate ends of the handler
+		rw.writeTrailers()
+		headers := decodeHeader(strBuf)
+		Expect(headers).To(HaveKeyWithValue(":status", []string{"200"}))
+		Expect(headers).To(HaveKeyWithValue("trailer", []string{"Key", "Key2"}))
+
+		Expect(getData(strBuf)).To(Equal([]byte("foobar")))
+
+		trailers := decodeHeader(strBuf)
+		Expect(trailers).To(HaveKeyWithValue("key", []string{"Value"}))
+		Expect(trailers).To(HaveKeyWithValue("key2", []string{"Value"}))
+
+	})
+
+	It("ignore non-announced trailer (without trailer prefix)", func() {
+		rw.Header().Set("Trailer", "Key")
+		rw.WriteHeader(200)
+		rw.Write([]byte("foobar"))
+		rw.Header().Set("UnknownKey", "Value")
+		rw.Header().Set("Key", "Value")
+
+		// Needs to call writeTrailers for simulate ends of the handler
+		rw.writeTrailers()
+		headers := decodeHeader(strBuf)
+		Expect(headers).To(HaveKeyWithValue(":status", []string{"200"}))
+		Expect(headers).To(HaveKeyWithValue("trailer", []string{"Key"}))
+
+		Expect(getData(strBuf)).To(Equal([]byte("foobar")))
+
+		trailers := decodeHeader(strBuf)
+		Expect(trailers).To(HaveKeyWithValue("key", []string{"Value"}))
+		Expect(trailers).To(Not(HaveKeyWithValue("unknownkey", []string{"Value"})))
+
+	})
+
+	It("write non-announced trailer (with trailer prefix)", func() {
+		rw.Header().Set("Trailer", "Key")
+		rw.WriteHeader(200)
+		rw.Write([]byte("foobar"))
+		rw.Header().Set("Key", "Value")
+		rw.Header().Set(http2.TrailerPrefix+"Key2", "Value")
+
+		// Needs to call writeTrailers for simulate ends of the handler
+		rw.writeTrailers()
+		headers := decodeHeader(strBuf)
+		Expect(headers).To(HaveKeyWithValue(":status", []string{"200"}))
+		Expect(headers).To(HaveKeyWithValue("trailer", []string{"Key"}))
+
+		Expect(getData(strBuf)).To(Equal([]byte("foobar")))
+
+		trailers := decodeHeader(strBuf)
+		Expect(trailers).To(HaveKeyWithValue("key", []string{"Value"}))
+		Expect(trailers).To(HaveKeyWithValue("key2", []string{"Value"}))
+
 	})
 })

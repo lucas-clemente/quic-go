@@ -288,6 +288,10 @@ func (s *Server) handleRequest(sess quic.Session, str quic.Stream, decoder *qpac
 			}
 		}()
 		handler.ServeHTTP(responseWriter, req)
+
+		// Write Trailers when ServeHTTP is finished to send trailers once
+		responseWriter.writeTrailers()
+
 		// read the eof
 		if _, err = str.Read([]byte{0}); err == io.EOF {
 			readEOF = true

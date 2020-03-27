@@ -3,8 +3,10 @@ package http3
 import (
 	"fmt"
 	"io"
+	"net/http"
 
 	"github.com/lucas-clemente/quic-go"
+	"github.com/marten-seemann/qpack"
 )
 
 // The body of a http.Request or http.Response.
@@ -22,6 +24,12 @@ type body struct {
 	onFrameError func()
 
 	bytesRemainingInFrame uint64
+
+	resp *http.Response
+
+	decoder *qpack.Decoder
+
+	maxHeaderBytes uint64
 }
 
 var _ io.ReadCloser = &body{}
@@ -34,11 +42,14 @@ func newRequestBody(str quic.Stream, onFrameError func()) *body {
 	}
 }
 
-func newResponseBody(str quic.Stream, done chan<- struct{}, onFrameError func()) *body {
+func newResponseBody(str quic.Stream, done chan<- struct{}, onFrameError func(), resp *http.Response, decoder *qpack.Decoder, maxHeaderBytes uint64) *body {
 	return &body{
-		str:          str,
-		onFrameError: onFrameError,
-		reqDone:      done,
+		str:            str,
+		onFrameError:   onFrameError,
+		reqDone:        done,
+		resp:           resp,
+		decoder:        decoder,
+		maxHeaderBytes: maxHeaderBytes,
 	}
 }
 
@@ -60,8 +71,30 @@ func (r *body) readImpl(b []byte) (int, error) {
 			}
 			switch f := frame.(type) {
 			case *headersFrame:
-				// skip HEADERS frames
-				continue
+				if r.isRequest {
+					// skip HEADERS frame in request
+					continue
+				}
+				if f.Length > r.maxHeaderBytes {
+					return 0, fmt.Errorf("HEADERS frame too large: %d bytes (max: %d)", f.Length, r.maxHeaderBytes)
+				}
+				p := make([]byte, f.Length)
+				r.str.Read(p)
+				trailers, err := r.decoder.DecodeFull(p)
+				if err != nil {
+					// Ignoring invalid frame
+					continue
+				}
+
+				for _, trailer := range trailers {
+					if r.resp.Trailer == nil {
+						r.resp.Trailer = http.Header{}
+					}
+					r.resp.Trailer.Add(trailer.Name, trailer.Value)
+				}
+
+				// Trailer Frame is the last frame.
+				return 0, nil
 			case *dataFrame:
 				r.bytesRemainingInFrame = f.Length
 				break parseLoop

@@ -276,6 +276,10 @@ func (a *updatableAEAD) shouldInitiateKeyUpdate() bool {
 	if !a.updateAllowed() {
 		return false
 	}
+	if a.keyPhase == 0 {
+		a.logger.Debugf("Initiating first key update as early as possible.")
+		return true
+	}
 	if a.numRcvdWithCurrentKey >= a.keyUpdateInterval {
 		a.logger.Debugf("Received %d packets with current key phase. Initiating key update to the next key phase: %d", a.numRcvdWithCurrentKey, a.keyPhase+1)
 		return true

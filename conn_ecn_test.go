@@ -52,6 +52,32 @@ var _ = Describe("Basic Conn Test", func() {
 			return conn.LocalAddr()
 		}
 
+		It("sets ECT0 on outgoing packets, for IPv4", func() {
+			server, packetChan := runServer("udp4", "localhost:0")
+			cl, err := net.DialUDP("udp4", nil, server.LocalAddr().(*net.UDPAddr))
+			Expect(err).ToNot(HaveOccurred())
+			conn, err := newConn(cl)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = conn.Write([]byte("foobar"))
+			Expect(err).ToNot(HaveOccurred())
+			var p *receivedPacket
+			Eventually(packetChan).Should(Receive(&p))
+			Expect(p.ecn).To(Equal(protocol.ECT0))
+		})
+
+		It("sets ECT0 on outgoing packets, for IPv6", func() {
+			server, packetChan := runServer("udp6", "[::]:0")
+			cl, err := net.DialUDP("udp6", nil, server.LocalAddr().(*net.UDPAddr))
+			Expect(err).ToNot(HaveOccurred())
+			conn, err := newConn(cl)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = conn.Write([]byte("foobar"))
+			Expect(err).ToNot(HaveOccurred())
+			var p *receivedPacket
+			Eventually(packetChan).Should(Receive(&p))
+			Expect(p.ecn).To(Equal(protocol.ECT0))
+		})
+
 		It("reads ECN flags on IPv4", func() {
 			conn, packetChan := runServer("udp4", "localhost:0")
 			defer conn.Close()

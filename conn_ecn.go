@@ -54,11 +54,17 @@ func newConn(c ECNCapablePacketConn) (*ecnConn, error) {
 	var errIPv4, errIPv6 error
 	if err := rawConn.Control(func(fd uintptr) {
 		errIPv4 = setRECVTOS(fd)
+		if errIPv4 == nil {
+			errIPv4 = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TOS, 2)
+		}
 	}); err != nil {
 		return nil, err
 	}
 	if err := rawConn.Control(func(fd uintptr) {
 		errIPv6 = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_RECVTCLASS, 1)
+		if errIPv6 == nil {
+			errIPv6 = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_TCLASS, 2)
+		}
 	}); err != nil {
 		return nil, err
 	}

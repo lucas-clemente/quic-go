@@ -88,20 +88,9 @@ func (c *ecnConn) ReadPacket() (*receivedPacket, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctrlMsgs, err := syscall.ParseSocketControlMessage(c.oobBuffer[:oobn])
+	ecn, err := ecnFromControlMessage(c.oobBuffer[:oobn])
 	if err != nil {
 		return nil, err
-	}
-	var ecn protocol.ECN
-	for _, ctrlMsg := range ctrlMsgs {
-		if ctrlMsg.Header.Level == syscall.IPPROTO_IP && ctrlMsg.Header.Type == msgTypeIPTOS {
-			ecn = protocol.ECN(ctrlMsg.Data[0] & ecnMask)
-			break
-		}
-		if ctrlMsg.Header.Level == syscall.IPPROTO_IPV6 && ctrlMsg.Header.Type == syscall.IPV6_TCLASS {
-			ecn = protocol.ECN(ctrlMsg.Data[0] & ecnMask)
-			break
-		}
 	}
 	return &receivedPacket{
 		remoteAddr: addr,

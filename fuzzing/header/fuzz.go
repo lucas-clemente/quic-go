@@ -29,7 +29,10 @@ func Fuzz(data []byte) int {
 	if err != nil {
 		return 0
 	}
-	hdr, _, _, err := wire.ParsePacket(data, connIDLen)
+	if !wire.IsLongHeader(data[0]) {
+		return 0
+	}
+	hdr, _, _, err := wire.ParseLongHeaderPacket(data)
 	if err != nil {
 		return 0
 	}

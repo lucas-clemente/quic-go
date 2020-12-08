@@ -48,7 +48,8 @@ var _ = Describe("QUIC Proxy", func() {
 	}
 
 	readPacketNumber := func(b []byte) protocol.PacketNumber {
-		hdr, data, _, err := wire.ParsePacket(b, 0)
+		Expect(wire.IsLongHeader(b[0])).To(BeTrue())
+		hdr, data, _, err := wire.ParseLongHeaderPacket(b)
 		ExpectWithOffset(1, err).ToNot(HaveOccurred())
 		Expect(hdr.Type).To(Equal(protocol.PacketTypeInitial))
 		extHdr, err := hdr.ParseExtended(bytes.NewReader(data), protocol.VersionTLS)

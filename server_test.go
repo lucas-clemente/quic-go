@@ -89,8 +89,8 @@ var _ = Describe("Server", func() {
 		return getInitial(destConnID)
 	}
 
-	parseHeader := func(data []byte) *wire.Header {
-		hdr, _, _, err := wire.ParsePacket(data, 0)
+	parseLongHeaderHeader := func(data []byte) *wire.Header {
+		hdr, _, _, err := wire.ParseLongHeaderPacket(data)
 		Expect(err).ToNot(HaveOccurred())
 		return hdr
 	}
@@ -471,7 +471,7 @@ var _ = Describe("Server", func() {
 				done := make(chan struct{})
 				conn.EXPECT().WriteTo(gomock.Any(), raddr).DoAndReturn(func(b []byte, _ net.Addr) (int, error) {
 					defer close(done)
-					replyHdr := parseHeader(b)
+					replyHdr := parseLongHeaderHeader(b)
 					Expect(replyHdr.Type).To(Equal(protocol.PacketTypeRetry))
 					Expect(replyHdr.SrcConnectionID).ToNot(Equal(hdr.DestConnectionID))
 					Expect(replyHdr.DestConnectionID).To(Equal(hdr.SrcConnectionID))
@@ -512,12 +512,12 @@ var _ = Describe("Server", func() {
 				done := make(chan struct{})
 				conn.EXPECT().WriteTo(gomock.Any(), raddr).DoAndReturn(func(b []byte, _ net.Addr) (int, error) {
 					defer close(done)
-					replyHdr := parseHeader(b)
+					replyHdr := parseLongHeaderHeader(b)
 					Expect(replyHdr.Type).To(Equal(protocol.PacketTypeInitial))
 					Expect(replyHdr.SrcConnectionID).To(Equal(hdr.DestConnectionID))
 					Expect(replyHdr.DestConnectionID).To(Equal(hdr.SrcConnectionID))
 					_, opener := handshake.NewInitialAEAD(hdr.DestConnectionID, protocol.PerspectiveClient)
-					extHdr, err := unpackHeader(opener, replyHdr, b, hdr.Version)
+					extHdr, err := unpackLongHeader(opener, replyHdr, b, hdr.Version)
 					Expect(err).ToNot(HaveOccurred())
 					data, err := opener.Open(nil, b[extHdr.ParsedLen():], extHdr.PacketNumber, b[:extHdr.ParsedLen()])
 					Expect(err).ToNot(HaveOccurred())
@@ -824,13 +824,13 @@ var _ = Describe("Server", func() {
 				}
 				wg.Wait()
 				p := getInitialWithRandomDestConnID()
-				hdr, _, _, err := wire.ParsePacket(p.data, 0)
+				hdr, _, _, err := wire.ParseLongHeaderPacket(p.data)
 				Expect(err).ToNot(HaveOccurred())
 				tracer.EXPECT().SentPacket(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 				done := make(chan struct{})
 				conn.EXPECT().WriteTo(gomock.Any(), p.remoteAddr).DoAndReturn(func(b []byte, _ net.Addr) (int, error) {
 					defer close(done)
-					rejectHdr := parseHeader(b)
+					rejectHdr := parseLongHeaderHeader(b)
 					Expect(rejectHdr.Type).To(Equal(protocol.PacketTypeInitial))
 					Expect(rejectHdr.Version).To(Equal(hdr.Version))
 					Expect(rejectHdr.DestConnectionID).To(Equal(hdr.SrcConnectionID))
@@ -1105,11 +1105,11 @@ var _ = Describe("Server", func() {
 			time.Sleep(50 * time.Millisecond)
 
 			p := getInitialWithRandomDestConnID()
-			hdr := parseHeader(p.data)
+			hdr := parseLongHeaderHeader(p.data)
 			done := make(chan struct{})
 			conn.EXPECT().WriteTo(gomock.Any(), senderAddr).DoAndReturn(func(b []byte, _ net.Addr) (int, error) {
 				defer close(done)
-				rejectHdr := parseHeader(b)
+				rejectHdr := parseLongHeaderHeader(b)
 				Expect(rejectHdr.Type).To(Equal(protocol.PacketTypeInitial))
 				Expect(rejectHdr.Version).To(Equal(hdr.Version))
 				Expect(rejectHdr.DestConnectionID).To(Equal(hdr.SrcConnectionID))

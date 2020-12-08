@@ -165,11 +165,9 @@ func (t *connTracer) ClosedConnection(r logging.CloseReason) {
 }
 func (t *connTracer) SentTransportParameters(*logging.TransportParameters)     {}
 func (t *connTracer) ReceivedTransportParameters(*logging.TransportParameters) {}
-func (t *connTracer) SentPacket(hdr *logging.ExtendedHeader, _ logging.ByteCount, _ *logging.AckFrame, _ []logging.Frame) {
+func (t *connTracer) SentLongHeaderPacket(hdr *logging.ExtendedHeader, _ logging.ByteCount, _ *logging.AckFrame, _ []logging.Frame) {
 	typ := logging.PacketTypeFromHeader(&hdr.Header)
-	if typ == logging.PacketType1RTT {
-		t.handshakeComplete = true
-	}
+
 	stats.RecordWithTags(
 		context.Background(),
 		[]tag.Mutator{
@@ -178,9 +176,23 @@ func (t *connTracer) SentPacket(hdr *logging.ExtendedHeader, _ logging.ByteCount
 		sentPackets.M(1),
 	)
 }
+
+func (t *connTracer) SentShortHeaderPacket(logging.ConnectionID, logging.PacketNumber, logging.KeyPhaseBit, logging.ByteCount, *logging.AckFrame, []logging.Frame) {
+	t.handshakeComplete = true
+	stats.RecordWithTags(
+		context.Background(),
+		[]tag.Mutator{
+			tag.Upsert(keyPacketType, packetType(logging.PacketType1RTT).String()),
+		},
+		sentPackets.M(1),
+	)
+}
 func (t *connTracer) ReceivedVersionNegotiationPacket(*logging.Header, []logging.VersionNumber) {}
 func (t *connTracer) ReceivedRetry(*logging.Header)                                             {}
-func (t *connTracer) ReceivedPacket(*logging.ExtendedHeader, logging.ByteCount, []logging.Frame) {
+func (t *connTracer) ReceivedLongHeaderPacket(*logging.ExtendedHeader, logging.ByteCount, []logging.Frame) {
+}
+
+func (t *connTracer) ReceivedShortHeaderPacket(logging.ConnectionID, logging.PacketNumber, logging.KeyPhaseBit, logging.ByteCount, []logging.Frame) {
 }
 func (t *connTracer) BufferedPacket(logging.PacketType)                                             {}
 func (t *connTracer) DroppedPacket(logging.PacketType, logging.ByteCount, logging.PacketDropReason) {}

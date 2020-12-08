@@ -332,7 +332,11 @@ func (s *baseServer) handlePacketImpl(p *receivedPacket) bool /* is the buffer s
 	}
 	// If we're creating a new session, the packet will be passed to the session.
 	// The header will then be parsed again.
-	hdr, _, _, err := wire.ParsePacket(p.data, s.config.ConnectionIDLength)
+	// Short header packets should never end up here in the first place
+	if !wire.IsLongHeader(p.data[0]) {
+		panic(fmt.Sprintf("misrouted packet: %#v", p))
+	}
+	hdr, _, _, err := wire.ParseLongHeaderPacket(p.data)
 	if err != nil && err != wire.ErrUnsupportedVersion {
 		if s.config.Tracer != nil {
 			s.config.Tracer.DroppedPacket(p.remoteAddr, logging.PacketTypeNotDetermined, p.Size(), logging.PacketDropHeaderParseError)
@@ -340,10 +344,7 @@ func (s *baseServer) handlePacketImpl(p *receivedPacket) bool /* is the buffer s
 		s.logger.Debugf("Error parsing packet: %s", err)
 		return false
 	}
-	// Short header packets should never end up here in the first place
-	if !hdr.IsLongHeader {
-		panic(fmt.Sprintf("misrouted packet: %#v", hdr))
-	}
+
 	if hdr.Type == protocol.PacketTypeInitial && p.Size() < protocol.MinInitialPacketSize {
 		s.logger.Debugf("Dropping a packet that is too small to be a valid Initial (%d bytes)", p.Size())
 		if s.config.Tracer != nil {
@@ -363,20 +364,18 @@ func (s *baseServer) handlePacketImpl(p *receivedPacket) bool /* is the buffer s
 		go s.sendVersionNegotiationPacket(p, hdr)
 		return false
 	}
-	if hdr.IsLongHeader {
-		if hdr.Type == protocol.PacketType0RTT {
-			s.zeroRTTQueue.Enqueue(hdr.DestConnectionID, p)
-			return true
-		} else if hdr.Type != protocol.PacketTypeInitial {
-			// Drop long header packets.
-			// There's little point in sending a Stateless Reset, since the client
-			// might not have received the token yet.
-			s.logger.Debugf("Dropping long header packet of type %s (%d bytes)", hdr.Type, len(p.data))
-			if s.config.Tracer != nil {
-				s.config.Tracer.DroppedPacket(p.remoteAddr, logging.PacketTypeFromHeader(hdr), p.Size(), logging.PacketDropUnexpectedPacket)
-			}
-			return false
+	if hdr.Type == protocol.PacketType0RTT {
+		s.zeroRTTQueue.Enqueue(hdr.DestConnectionID, p)
+		return true
+	} else if hdr.Type != protocol.PacketTypeInitial {
+		// Drop long header packets.
+		// There's little point in sending a Stateless Reset, since the client
+		// might not have received the token yet.
+		s.logger.Debugf("Dropping long header packet of type %s (%d bytes)", hdr.Type, len(p.data))
+		if s.config.Tracer != nil {
+			s.config.Tracer.DroppedPacket(p.remoteAddr, logging.PacketTypeFromHeader(hdr), p.Size(), logging.PacketDropUnexpectedPacket)
 		}
+		return false
 	}
 
 	s.logger.Debugf("<- Received Initial packet.")
@@ -587,7 +586,7 @@ func (s *baseServer) maybeSendInvalidToken(p *receivedPacket, hdr *wire.Header) 
 	// This makes sure that we won't send it for packets that were corrupted.
 	sealer, opener := handshake.NewInitialAEAD(hdr.DestConnectionID, protocol.PerspectiveServer)
 	data := p.data[:hdr.ParsedLen()+hdr.Length]
-	extHdr, err := unpackHeader(opener, hdr, data, hdr.Version)
+	extHdr, err := unpackLongHeader(opener, hdr, data, hdr.Version)
 	if err != nil {
 		if s.config.Tracer != nil {
 			s.config.Tracer.DroppedPacket(p.remoteAddr, logging.PacketTypeInitial, p.Size(), logging.PacketDropHeaderParseError)

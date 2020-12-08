@@ -10,6 +10,11 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/utils"
 )
 
+// IsLongHeader says if a packet is a long header packet.
+func IsLongHeader(firstByte byte) bool {
+	return firstByte&0x80 > 0
+}
+
 // ParseConnectionID parses the destination connection ID of a packet.
 // It uses the data slice for the connection ID.
 // That means that the connection ID must not be used after the packet buffer is released.
@@ -46,7 +51,7 @@ var ErrUnsupportedVersion = errors.New("unsupported version")
 
 // The Header is the version independent part of the header
 type Header struct {
-	IsLongHeader bool
+	IsLongHeader bool // TODO: remove. Currently only needed for logging.
 	typeByte     byte
 	Type         protocol.PacketType
 
@@ -61,72 +66,45 @@ type Header struct {
 	parsedLen protocol.ByteCount // how many bytes were read while parsing this header
 }
 
-// ParsePacket parses a packet.
+// ParseLongHeaderPacket parses a long header packet.
 // If the packet has a long header, the packet is cut according to the length field.
 // If we understand the version, the packet is header up unto the packet number.
 // Otherwise, only the invariant part of the header is parsed.
-func ParsePacket(data []byte, shortHeaderConnIDLen int) (*Header, []byte /* packet data */, []byte /* rest */, error) {
-	hdr, err := parseHeader(bytes.NewReader(data), shortHeaderConnIDLen)
+func ParseLongHeaderPacket(data []byte) (*Header, []byte /* packet data */, []byte /* rest */, error) {
+	hdr, err := parseLongHeader(bytes.NewReader(data))
 	if err != nil {
 		if err == ErrUnsupportedVersion {
 			return hdr, nil, nil, ErrUnsupportedVersion
 		}
 		return nil, nil, nil, err
 	}
-	var rest []byte
-	if hdr.IsLongHeader {
-		if protocol.ByteCount(len(data)) < hdr.ParsedLen()+hdr.Length {
-			return nil, nil, nil, fmt.Errorf("packet length (%d bytes) is smaller than the expected length (%d bytes)", len(data)-int(hdr.ParsedLen()), hdr.Length)
-		}
-		packetLen := int(hdr.ParsedLen() + hdr.Length)
-		rest = data[packetLen:]
-		data = data[:packetLen]
+	if protocol.ByteCount(len(data)) < hdr.ParsedLen()+hdr.Length {
+		return nil, nil, nil, fmt.Errorf("packet length (%d bytes) is smaller than the expected length (%d bytes)", len(data)-int(hdr.ParsedLen()), hdr.Length)
 	}
+	packetLen := int(hdr.ParsedLen() + hdr.Length)
+	rest := data[packetLen:]
+	data = data[:packetLen]
 	return hdr, data, rest, nil
 }
 
-// ParseHeader parses the header.
-// For short header packets: up to the packet number.
-// For long header packets:
+// parseHeader parses the Long Header.
 // * if we understand the version: up to the packet number
 // * if not, only the invariant part of the header
-func parseHeader(b *bytes.Reader, shortHeaderConnIDLen int) (*Header, error) {
+func parseLongHeader(b *bytes.Reader) (*Header, error) {
 	startLen := b.Len()
-	h, err := parseHeaderImpl(b, shortHeaderConnIDLen)
-	if err != nil {
-		return h, err
-	}
-	h.parsedLen = protocol.ByteCount(startLen - b.Len())
-	return h, err
-}
-
-func parseHeaderImpl(b *bytes.Reader, shortHeaderConnIDLen int) (*Header, error) {
 	typeByte, err := b.ReadByte()
 	if err != nil {
 		return nil, err
 	}
-
 	h := &Header{
 		typeByte:     typeByte,
-		IsLongHeader: typeByte&0x80 > 0,
+		IsLongHeader: true,
 	}
-
-	if !h.IsLongHeader {
-		if h.typeByte&0x40 == 0 {
-			return nil, errors.New("not a QUIC packet")
-		}
-		if err := h.parseShortHeader(b, shortHeaderConnIDLen); err != nil {
-			return nil, err
-		}
-		return h, nil
+	if err := h.parseLongHeader(b); err != nil {
+		return h, err
 	}
-	return h, h.parseLongHeader(b)
-}
-
-func (h *Header) parseShortHeader(b *bytes.Reader, shortHeaderConnIDLen int) error {
-	var err error
-	h.DestConnectionID, err = protocol.ReadConnectionID(b, shortHeaderConnIDLen)
-	return err
+	h.parsedLen = protocol.ByteCount(startLen - b.Len())
+	return h, err
 }
 
 func (h *Header) parseLongHeader(b *bytes.Reader) error {

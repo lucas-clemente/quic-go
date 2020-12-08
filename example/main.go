@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -163,7 +164,9 @@ func main() {
 	}
 
 	handler := setupHandler(*www)
-	quicConf := &quic.Config{}
+	quicConf := &quic.Config{
+		AcceptToken: func(clientAddr net.Addr, token *quic.Token) bool { return true },
+	}
 	if *enableQlog {
 		quicConf.Tracer = qlog.NewTracer(func(_ logging.Perspective, connID []byte) io.WriteCloser {
 			filename := fmt.Sprintf("server_%x.qlog", connID)

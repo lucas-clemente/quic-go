@@ -159,16 +159,16 @@ func (mr *MockConnectionTracerMockRecorder) LostPacket(arg0, arg1, arg2 interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LostPacket", reflect.TypeOf((*MockConnectionTracer)(nil).LostPacket), arg0, arg1, arg2)
 }
 
-// ReceivedPacket mocks base method
-func (m *MockConnectionTracer) ReceivedPacket(arg0 *wire.ExtendedHeader, arg1 protocol.ByteCount, arg2 []logging.Frame) {
+// ReceivedLongHeaderPacket mocks base method
+func (m *MockConnectionTracer) ReceivedLongHeaderPacket(arg0 *wire.ExtendedHeader, arg1 protocol.ByteCount, arg2 []logging.Frame) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "ReceivedPacket", arg0, arg1, arg2)
+	m.ctrl.Call(m, "ReceivedLongHeaderPacket", arg0, arg1, arg2)
 }
 
-// ReceivedPacket indicates an expected call of ReceivedPacket
-func (mr *MockConnectionTracerMockRecorder) ReceivedPacket(arg0, arg1, arg2 interface{}) *gomock.Call {
+// ReceivedLongHeaderPacket indicates an expected call of ReceivedLongHeaderPacket
+func (mr *MockConnectionTracerMockRecorder) ReceivedLongHeaderPacket(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReceivedPacket", reflect.TypeOf((*MockConnectionTracer)(nil).ReceivedPacket), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReceivedLongHeaderPacket", reflect.TypeOf((*MockConnectionTracer)(nil).ReceivedLongHeaderPacket), arg0, arg1, arg2)
 }
 
 // ReceivedRetry mocks base method
@@ -181,6 +181,18 @@ func (m *MockConnectionTracer) ReceivedRetry(arg0 *wire.Header) {
 func (mr *MockConnectionTracerMockRecorder) ReceivedRetry(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReceivedRetry", reflect.TypeOf((*MockConnectionTracer)(nil).ReceivedRetry), arg0)
+}
+
+// ReceivedShortHeaderPacket mocks base method
+func (m *MockConnectionTracer) ReceivedShortHeaderPacket(arg0 protocol.ConnectionID, arg1 protocol.PacketNumber, arg2 protocol.KeyPhaseBit, arg3 protocol.ByteCount, arg4 []logging.Frame) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ReceivedShortHeaderPacket", arg0, arg1, arg2, arg3, arg4)
+}
+
+// ReceivedShortHeaderPacket indicates an expected call of ReceivedShortHeaderPacket
+func (mr *MockConnectionTracerMockRecorder) ReceivedShortHeaderPacket(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReceivedShortHeaderPacket", reflect.TypeOf((*MockConnectionTracer)(nil).ReceivedShortHeaderPacket), arg0, arg1, arg2, arg3, arg4)
 }
 
 // ReceivedTransportParameters mocks base method
@@ -207,16 +219,28 @@ func (mr *MockConnectionTracerMockRecorder) ReceivedVersionNegotiationPacket(arg
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReceivedVersionNegotiationPacket", reflect.TypeOf((*MockConnectionTracer)(nil).ReceivedVersionNegotiationPacket), arg0, arg1)
 }
 
-// SentPacket mocks base method
-func (m *MockConnectionTracer) SentPacket(arg0 *wire.ExtendedHeader, arg1 protocol.ByteCount, arg2 *wire.AckFrame, arg3 []logging.Frame) {
+// SentLongHeaderPacket mocks base method
+func (m *MockConnectionTracer) SentLongHeaderPacket(arg0 *wire.ExtendedHeader, arg1 protocol.ByteCount, arg2 *wire.AckFrame, arg3 []logging.Frame) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SentPacket", arg0, arg1, arg2, arg3)
+	m.ctrl.Call(m, "SentLongHeaderPacket", arg0, arg1, arg2, arg3)
 }
 
-// SentPacket indicates an expected call of SentPacket
-func (mr *MockConnectionTracerMockRecorder) SentPacket(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+// SentLongHeaderPacket indicates an expected call of SentLongHeaderPacket
+func (mr *MockConnectionTracerMockRecorder) SentLongHeaderPacket(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SentPacket", reflect.TypeOf((*MockConnectionTracer)(nil).SentPacket), arg0, arg1, arg2, arg3)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SentLongHeaderPacket", reflect.TypeOf((*MockConnectionTracer)(nil).SentLongHeaderPacket), arg0, arg1, arg2, arg3)
+}
+
+// SentShortHeaderPacket mocks base method
+func (m *MockConnectionTracer) SentShortHeaderPacket(arg0 protocol.ConnectionID, arg1 protocol.PacketNumber, arg2 protocol.KeyPhaseBit, arg3 protocol.ByteCount, arg4 *wire.AckFrame, arg5 []logging.Frame) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SentShortHeaderPacket", arg0, arg1, arg2, arg3, arg4, arg5)
+}
+
+// SentShortHeaderPacket indicates an expected call of SentShortHeaderPacket
+func (mr *MockConnectionTracerMockRecorder) SentShortHeaderPacket(arg0, arg1, arg2, arg3, arg4, arg5 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SentShortHeaderPacket", reflect.TypeOf((*MockConnectionTracer)(nil).SentShortHeaderPacket), arg0, arg1, arg2, arg3, arg4, arg5)
 }
 
 // SentTransportParameters mocks base method

@@ -9,6 +9,7 @@ import (
 	time "time"
 
 	gomock "github.com/golang/mock/gomock"
+	protocol "github.com/lucas-clemente/quic-go/internal/protocol"
 	wire "github.com/lucas-clemente/quic-go/internal/wire"
 )
 
@@ -35,17 +36,34 @@ func (m *MockUnpacker) EXPECT() *MockUnpackerMockRecorder {
 	return m.recorder
 }
 
-// Unpack mocks base method
-func (m *MockUnpacker) Unpack(arg0 *wire.Header, arg1 time.Time, arg2 []byte) (*unpackedPacket, error) {
+// UnpackLongHeaderPacket mocks base method
+func (m *MockUnpacker) UnpackLongHeaderPacket(arg0 *wire.Header, arg1 time.Time, arg2 []byte) (*unpackedPacket, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Unpack", arg0, arg1, arg2)
+	ret := m.ctrl.Call(m, "UnpackLongHeaderPacket", arg0, arg1, arg2)
 	ret0, _ := ret[0].(*unpackedPacket)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// Unpack indicates an expected call of Unpack
-func (mr *MockUnpackerMockRecorder) Unpack(arg0, arg1, arg2 interface{}) *gomock.Call {
+// UnpackLongHeaderPacket indicates an expected call of UnpackLongHeaderPacket
+func (mr *MockUnpackerMockRecorder) UnpackLongHeaderPacket(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unpack", reflect.TypeOf((*MockUnpacker)(nil).Unpack), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnpackLongHeaderPacket", reflect.TypeOf((*MockUnpacker)(nil).UnpackLongHeaderPacket), arg0, arg1, arg2)
+}
+
+// UnpackShortHeaderPacket mocks base method
+func (m *MockUnpacker) UnpackShortHeaderPacket(arg0 protocol.ConnectionID, arg1 time.Time, arg2 []byte) (protocol.PacketNumber, protocol.KeyPhaseBit, []byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UnpackShortHeaderPacket", arg0, arg1, arg2)
+	ret0, _ := ret[0].(protocol.PacketNumber)
+	ret1, _ := ret[1].(protocol.KeyPhaseBit)
+	ret2, _ := ret[2].([]byte)
+	ret3, _ := ret[3].(error)
+	return ret0, ret1, ret2, ret3
+}
+
+// UnpackShortHeaderPacket indicates an expected call of UnpackShortHeaderPacket
+func (mr *MockUnpackerMockRecorder) UnpackShortHeaderPacket(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnpackShortHeaderPacket", reflect.TypeOf((*MockUnpacker)(nil).UnpackShortHeaderPacket), arg0, arg1, arg2)
 }

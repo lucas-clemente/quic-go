@@ -17,29 +17,23 @@ import (
 )
 
 var (
-	sentHeaders     []*logging.ExtendedHeader
-	receivedHeaders []*logging.ExtendedHeader
+	sentKeyPhases     []logging.KeyPhaseBit
+	receivedKeyPhases []logging.KeyPhaseBit
 )
 
 func countKeyPhases() (sent, received int) {
 	lastKeyPhase := protocol.KeyPhaseOne
-	for _, hdr := range sentHeaders {
-		if hdr.IsLongHeader {
-			continue
-		}
-		if hdr.KeyPhase != lastKeyPhase {
+	for _, keyPhase := range sentKeyPhases {
+		if keyPhase != lastKeyPhase {
 			sent++
-			lastKeyPhase = hdr.KeyPhase
+			lastKeyPhase = keyPhase
 		}
 	}
 	lastKeyPhase = protocol.KeyPhaseOne
-	for _, hdr := range receivedHeaders {
-		if hdr.IsLongHeader {
-			continue
-		}
-		if hdr.KeyPhase != lastKeyPhase {
+	for _, keyPhase := range receivedKeyPhases {
+		if keyPhase != lastKeyPhase {
 			received++
-			lastKeyPhase = hdr.KeyPhase
+			lastKeyPhase = keyPhase
 		}
 	}
 	return
@@ -65,13 +59,19 @@ func (t *connTracer) StartedConnection(local, remote net.Addr, version logging.V
 func (t *connTracer) ClosedConnection(logging.CloseReason)                     {}
 func (t *connTracer) SentTransportParameters(*logging.TransportParameters)     {}
 func (t *connTracer) ReceivedTransportParameters(*logging.TransportParameters) {}
-func (t *connTracer) SentPacket(hdr *logging.ExtendedHeader, size logging.ByteCount, ack *logging.AckFrame, frames []logging.Frame) {
-	sentHeaders = append(sentHeaders, hdr)
+func (t *connTracer) SentLongHeaderPacket(*logging.ExtendedHeader, logging.ByteCount, *logging.AckFrame, []logging.Frame) {
+}
+
+func (t *connTracer) SentShortHeaderPacket(_ logging.ConnectionID, _ logging.PacketNumber, kp logging.KeyPhaseBit, _ logging.ByteCount, _ *logging.AckFrame, _ []logging.Frame) {
+	sentKeyPhases = append(sentKeyPhases, kp)
 }
 func (t *connTracer) ReceivedVersionNegotiationPacket(*logging.Header, []logging.VersionNumber) {}
 func (t *connTracer) ReceivedRetry(*logging.Header)                                             {}
-func (t *connTracer) ReceivedPacket(hdr *logging.ExtendedHeader, size logging.ByteCount, frames []logging.Frame) {
-	receivedHeaders = append(receivedHeaders, hdr)
+func (t *connTracer) ReceivedLongHeaderPacket(*logging.ExtendedHeader, logging.ByteCount, []logging.Frame) {
+}
+
+func (t *connTracer) ReceivedShortHeaderPacket(_ logging.ConnectionID, _ logging.PacketNumber, kp logging.KeyPhaseBit, _ logging.ByteCount, _ []logging.Frame) {
+	receivedKeyPhases = append(receivedKeyPhases, kp)
 }
 func (t *connTracer) BufferedPacket(logging.PacketType)                                             {}
 func (t *connTracer) DroppedPacket(logging.PacketType, logging.ByteCount, logging.PacketDropReason) {}

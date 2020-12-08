@@ -31,10 +31,12 @@ var _ = Describe("0-RTT", func() {
 				proxy, err := quicproxy.NewQuicProxy("localhost:0", &quicproxy.Opts{
 					RemoteAddr: fmt.Sprintf("localhost:%d", serverPort),
 					DelayPacket: func(_ quicproxy.Direction, data []byte) time.Duration {
-						hdr, _, _, err := wire.ParsePacket(data, 0)
-						Expect(err).ToNot(HaveOccurred())
-						if hdr.Type == protocol.PacketType0RTT {
-							atomic.AddUint32(&num0RTTPackets, 1)
+						if wire.IsLongHeader(data[0]) {
+							hdr, _, _, err := wire.ParseLongHeaderPacket(data)
+							Expect(err).ToNot(HaveOccurred())
+							if hdr.Type == protocol.PacketType0RTT {
+								atomic.AddUint32(&num0RTTPackets, 1)
+							}
 						}
 						return rtt / 2
 					},
@@ -222,23 +224,27 @@ var _ = Describe("0-RTT", func() {
 				proxy, err := quicproxy.NewQuicProxy("localhost:0", &quicproxy.Opts{
 					RemoteAddr: fmt.Sprintf("localhost:%d", serverPort),
 					DelayPacket: func(_ quicproxy.Direction, data []byte) time.Duration {
-						hdr, _, _, err := wire.ParsePacket(data, 0)
-						Expect(err).ToNot(HaveOccurred())
-						if hdr.Type == protocol.PacketType0RTT {
-							atomic.AddUint32(&num0RTTPackets, 1)
+						if wire.IsLongHeader(data[0]) {
+							hdr, _, _, err := wire.ParseLongHeaderPacket(data)
+							Expect(err).ToNot(HaveOccurred())
+							if hdr.Type == protocol.PacketType0RTT {
+								atomic.AddUint32(&num0RTTPackets, 1)
+							}
 						}
 						return rtt / 2
 					},
 					DropPacket: func(_ quicproxy.Direction, data []byte) bool {
-						hdr, _, _, err := wire.ParsePacket(data, 0)
-						Expect(err).ToNot(HaveOccurred())
-						if hdr.Type == protocol.PacketType0RTT {
-							// drop 25% of the 0-RTT packets
-							drop := mrand.Intn(4) == 0
-							if drop {
-								atomic.AddUint32(&num0RTTDropped, 1)
+						if wire.IsLongHeader(data[0]) {
+							hdr, _, _, err := wire.ParseLongHeaderPacket(data)
+							Expect(err).ToNot(HaveOccurred())
+							if hdr.Type == protocol.PacketType0RTT {
+								// drop 25% of the 0-RTT packets
+								drop := mrand.Intn(4) == 0
+								if drop {
+									atomic.AddUint32(&num0RTTDropped, 1)
+								}
+								return drop
 							}
-							return drop
 						}
 						return false
 					},
@@ -272,7 +278,10 @@ var _ = Describe("0-RTT", func() {
 
 				countZeroRTTBytes := func(data []byte) (n protocol.ByteCount) {
 					for len(data) > 0 {
-						hdr, _, rest, err := wire.ParsePacket(data, 0)
+						if !wire.IsLongHeader(data[0]) {
+							return
+						}
+						hdr, _, rest, err := wire.ParseLongHeaderPacket(data)
 						if err != nil {
 							return
 						}

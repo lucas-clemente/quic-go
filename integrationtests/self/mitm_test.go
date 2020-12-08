@@ -88,24 +88,35 @@ var _ = Describe("MITM test", func() {
 
 					sendRandomPacketsOfSameType := func(conn net.PacketConn, remoteAddr net.Addr, raw []byte) {
 						defer GinkgoRecover()
-						hdr, _, _, err := wire.ParsePacket(raw, connIDLen)
-						Expect(err).ToNot(HaveOccurred())
-						replyHdr := &wire.ExtendedHeader{
-							Header: wire.Header{
-								IsLongHeader:     hdr.IsLongHeader,
-								DestConnectionID: hdr.DestConnectionID,
-								SrcConnectionID:  hdr.SrcConnectionID,
-								Type:             hdr.Type,
-								Version:          hdr.Version,
-							},
-							PacketNumber:    protocol.PacketNumber(mrand.Int31n(math.MaxInt32 / 4)),
-							PacketNumberLen: protocol.PacketNumberLen(mrand.Int31n(4) + 1),
+						var replyHdr *wire.ExtendedHeader
+						if wire.IsLongHeader(raw[0]) {
+							hdr, _, _, err := wire.ParseLongHeaderPacket(raw)
+							Expect(err).ToNot(HaveOccurred())
+							replyHdr = &wire.ExtendedHeader{
+								Header: wire.Header{
+									IsLongHeader:     hdr.IsLongHeader,
+									DestConnectionID: hdr.DestConnectionID,
+									SrcConnectionID:  hdr.SrcConnectionID,
+									Type:             hdr.Type,
+									Version:          hdr.Version,
+								},
+								PacketNumber:    protocol.PacketNumber(mrand.Int31n(math.MaxInt32 / 4)),
+								PacketNumberLen: protocol.PacketNumberLen(mrand.Int31n(4) + 1),
+							}
+						} else {
+							destConnID, err := wire.ParseConnectionID(raw, connIDLen)
+							Expect(err).ToNot(HaveOccurred())
+							replyHdr = &wire.ExtendedHeader{
+								Header: wire.Header{DestConnectionID: destConnID},
+							}
 						}
 
 						const numPackets = 10
 						ticker := time.NewTicker(rtt / numPackets)
 						for i := 0; i < numPackets; i++ {
 							payloadLen := mrand.Int31n(100)
+							replyHdr.PacketNumber = protocol.PacketNumber(mrand.Int31())
+							replyHdr.PacketNumberLen = protocol.PacketNumberLen(mrand.Int31n(4) + 1)
 							replyHdr.Length = protocol.ByteCount(mrand.Int31n(payloadLen + 1))
 							buf := &bytes.Buffer{}
 							Expect(replyHdr.Write(buf, version)).To(Succeed())
@@ -350,9 +361,11 @@ var _ = Describe("MITM test", func() {
 						if dir == quicproxy.DirectionIncoming {
 							defer GinkgoRecover()
 
-							hdr, _, _, err := wire.ParsePacket(raw, connIDLen)
+							if !wire.IsLongHeader(raw[0]) {
+								return 0
+							}
+							hdr, _, _, err := wire.ParseLongHeaderPacket(raw)
 							Expect(err).ToNot(HaveOccurred())
-
 							if hdr.Type != protocol.PacketTypeInitial {
 								return 0
 							}
@@ -375,9 +388,11 @@ var _ = Describe("MITM test", func() {
 						if dir == quicproxy.DirectionIncoming && !initialPacketIntercepted {
 							defer GinkgoRecover()
 
-							hdr, _, _, err := wire.ParsePacket(raw, connIDLen)
+							if !wire.IsLongHeader(raw[0]) {
+								return 0
+							}
+							hdr, _, _, err := wire.ParseLongHeaderPacket(raw)
 							Expect(err).ToNot(HaveOccurred())
-
 							if hdr.Type != protocol.PacketTypeInitial {
 								return 0
 							}
@@ -400,9 +415,11 @@ var _ = Describe("MITM test", func() {
 						if dir == quicproxy.DirectionIncoming {
 							defer GinkgoRecover()
 
-							hdr, _, _, err := wire.ParsePacket(raw, connIDLen)
+							if !wire.IsLongHeader(raw[0]) {
+								return 0
+							}
+							hdr, _, _, err := wire.ParseLongHeaderPacket(raw)
 							Expect(err).ToNot(HaveOccurred())
-
 							if hdr.Type != protocol.PacketTypeInitial {
 								return 0
 							}
@@ -421,7 +438,10 @@ var _ = Describe("MITM test", func() {
 					clientAddr := clientConn.LocalAddr()
 					delayCb := func(dir quicproxy.Direction, raw []byte) time.Duration {
 						if dir == quicproxy.DirectionIncoming {
-							hdr, _, _, err := wire.ParsePacket(raw, connIDLen)
+							if !wire.IsLongHeader(raw[0]) {
+								return 0
+							}
+							hdr, _, _, err := wire.ParseLongHeaderPacket(raw)
 							Expect(err).ToNot(HaveOccurred())
 							if hdr.Type != protocol.PacketTypeInitial {
 								return 0

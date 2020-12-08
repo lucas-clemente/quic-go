@@ -327,8 +327,8 @@ var _ = Describe("Tracing", func() {
 				Expect(ev).ToNot(HaveKey("original_destination_connection_id"))
 			})
 
-			It("records a sent packet, without an ACK", func() {
-				tracer.SentPacket(
+			It("records a sent long header packet, without an ACK", func() {
+				tracer.SentLongHeaderPacket(
 					&logging.ExtendedHeader{
 						Header: logging.Header{
 							IsLongHeader:     true,
@@ -363,12 +363,66 @@ var _ = Describe("Tracing", func() {
 				Expect(frames[1].(map[string]interface{})).To(HaveKeyWithValue("frame_type", "stream"))
 			})
 
-			It("records a sent packet, without an ACK", func() {
-				tracer.SentPacket(
+			It("records a sent long header packet, containing an ACK", func() {
+				tracer.SentLongHeaderPacket(
 					&logging.ExtendedHeader{
-						Header:       logging.Header{DestConnectionID: protocol.ConnectionID{1, 2, 3, 4}},
+						Header: logging.Header{
+							IsLongHeader:     true,
+							Type:             protocol.PacketTypeInitial,
+							DestConnectionID: protocol.ConnectionID{1, 2, 3, 4},
+							Version:          protocol.VersionTLS,
+						},
 						PacketNumber: 1337,
 					},
+					123,
+					&logging.AckFrame{AckRanges: []logging.AckRange{{Smallest: 1, Largest: 10}}},
+					[]logging.Frame{&logging.MaxDataFrame{MaximumData: 987}},
+				)
+				entry := exportAndParseSingle()
+				ev := entry.Event
+				Expect(ev).To(HaveKey("header"))
+				Expect(ev).To(HaveKey("frames"))
+				frames := ev["frames"].([]interface{})
+				Expect(frames).To(HaveLen(2))
+				Expect(frames[0].(map[string]interface{})).To(HaveKeyWithValue("frame_type", "ack"))
+				Expect(frames[1].(map[string]interface{})).To(HaveKeyWithValue("frame_type", "max_data"))
+			})
+
+			It("records a sent short header packet, without an ACK", func() {
+				tracer.SentShortHeaderPacket(
+					protocol.ConnectionID{1, 2, 3, 4, 5, 6, 7, 8},
+					1337,
+					logging.KeyPhaseOne,
+					987,
+					nil,
+					[]logging.Frame{
+						&logging.MaxStreamDataFrame{StreamID: 42, MaximumStreamData: 987},
+						&logging.StreamFrame{StreamID: 123, Offset: 1234, Length: 6, Fin: true},
+					},
+				)
+				entry := exportAndParseSingle()
+				Expect(entry.Time).To(BeTemporally("~", time.Now(), scaleDuration(10*time.Millisecond)))
+				Expect(entry.Name).To(Equal("transport:packet_sent"))
+				ev := entry.Event
+				Expect(ev).To(HaveKey("header"))
+				hdr := ev["header"].(map[string]interface{})
+				Expect(hdr).To(HaveKeyWithValue("packet_type", "1RTT"))
+				Expect(hdr).To(HaveKeyWithValue("packet_size", float64(987)))
+				Expect(hdr).To(HaveKeyWithValue("packet_number", float64(1337)))
+				Expect(hdr).To(HaveKeyWithValue("key_phase_bit", "1"))
+				Expect(hdr).ToNot(HaveKey("scid"))
+				Expect(ev).To(HaveKey("frames"))
+				frames := ev["frames"].([]interface{})
+				Expect(frames).To(HaveLen(2))
+				Expect(frames[0].(map[string]interface{})).To(HaveKeyWithValue("frame_type", "max_stream_data"))
+				Expect(frames[1].(map[string]interface{})).To(HaveKeyWithValue("frame_type", "stream"))
+			})
+
+			It("records a sent short header packet, containing an ACK", func() {
+				tracer.SentShortHeaderPacket(
+					protocol.ConnectionID{1, 2, 3, 4},
+					1337,
+					logging.KeyPhaseOne,
 					123,
 					&logging.AckFrame{AckRanges: []logging.AckRange{{Smallest: 1, Largest: 10}}},
 					[]logging.Frame{&logging.MaxDataFrame{MaximumData: 987}},
@@ -386,8 +440,8 @@ var _ = Describe("Tracing", func() {
 				Expect(frames[1].(map[string]interface{})).To(HaveKeyWithValue("frame_type", "max_data"))
 			})
 
-			It("records a received packet", func() {
-				tracer.ReceivedPacket(
+			It("records a received long header packet", func() {
+				tracer.ReceivedLongHeaderPacket(
 					&logging.ExtendedHeader{
 						Header: logging.Header{
 							IsLongHeader:     true,
@@ -418,6 +472,32 @@ var _ = Describe("Tracing", func() {
 				Expect(hdr).To(HaveKey("token"))
 				token := hdr["token"].(map[string]interface{})
 				Expect(token).To(HaveKeyWithValue("data", "deadbeef"))
+				Expect(ev).To(HaveKey("frames"))
+				Expect(ev["frames"].([]interface{})).To(HaveLen(2))
+			})
+
+			It("records a received short header packet", func() {
+				tracer.ReceivedShortHeaderPacket(
+					protocol.ConnectionID{1, 2, 3, 4, 5, 6, 7, 8},
+					1337,
+					logging.KeyPhaseOne,
+					789,
+					[]logging.Frame{
+						&logging.MaxStreamDataFrame{StreamID: 42, MaximumStreamData: 987},
+						&logging.StreamFrame{StreamID: 123, Offset: 1234, Length: 6, Fin: true},
+					},
+				)
+				entry := exportAndParseSingle()
+				Expect(entry.Time).To(BeTemporally("~", time.Now(), scaleDuration(10*time.Millisecond)))
+				Expect(entry.Name).To(Equal("transport:packet_received"))
+				ev := entry.Event
+				Expect(ev).To(HaveKey("header"))
+				hdr := ev["header"].(map[string]interface{})
+				Expect(hdr).To(HaveKeyWithValue("packet_type", "1RTT"))
+				Expect(hdr).To(HaveKeyWithValue("packet_size", float64(789)))
+				Expect(hdr).To(HaveKeyWithValue("packet_number", float64(1337)))
+				Expect(hdr).To(HaveKeyWithValue("key_phase_bit", "1"))
+				Expect(hdr).ToNot(HaveKey("scid"))
 				Expect(ev).To(HaveKey("frames"))
 				Expect(ev["frames"].([]interface{})).To(HaveLen(2))
 			})

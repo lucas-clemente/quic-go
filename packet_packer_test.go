@@ -39,24 +39,26 @@ var _ = Describe("Packet packer", func() {
 	)
 	connID := protocol.ConnectionID{1, 2, 3, 4, 5, 6, 7, 8}
 
-	parsePacket := func(data []byte) []*wire.ExtendedHeader {
+	// parsePacket parses all long header packets. It returns the part of the datagram that was not parsed.
+	parsePacket := func(data []byte) ([]*wire.ExtendedHeader, []byte) {
 		var hdrs []*wire.ExtendedHeader
 		for len(data) > 0 {
-			hdr, payload, rest, err := wire.ParsePacket(data, connID.Len())
+			if !wire.IsLongHeader(data[0]) {
+				Expect(len(data)).To(BeNumerically(">=", 1+len(connID)+4))
+				break
+			}
+			hdr, payload, rest, err := wire.ParseLongHeaderPacket(data)
 			Expect(err).ToNot(HaveOccurred())
 			r := bytes.NewReader(data)
 			extHdr, err := hdr.ParseExtended(r, version)
 			Expect(err).ToNot(HaveOccurred())
-			if extHdr.IsLongHeader {
-				ExpectWithOffset(1, extHdr.Length).To(BeEquivalentTo(r.Len() - len(rest) + int(extHdr.PacketNumberLen)))
-				ExpectWithOffset(1, extHdr.Length+protocol.ByteCount(extHdr.PacketNumberLen)).To(BeNumerically(">=", 4))
-			} else {
-				ExpectWithOffset(1, len(payload)+int(extHdr.PacketNumberLen)).To(BeNumerically(">=", 4))
-			}
+			ExpectWithOffset(1, extHdr.Length).To(BeEquivalentTo(r.Len() - len(rest) + int(extHdr.PacketNumberLen)))
+			ExpectWithOffset(1, extHdr.Length+protocol.ByteCount(extHdr.PacketNumberLen)).To(BeNumerically(">=", 4))
+			ExpectWithOffset(1, len(payload)+int(extHdr.PacketNumberLen)).To(BeNumerically(">=", 4))
 			data = rest
 			hdrs = append(hdrs, extHdr)
 		}
-		return hdrs
+		return hdrs, data
 	}
 
 	appendFrames := func(fs, frames []ackhandler.Frame) ([]ackhandler.Frame, protocol.ByteCount) {
@@ -449,10 +451,11 @@ var _ = Describe("Packet packer", func() {
 				Expect(ccf.IsApplicationError).To(BeTrue())
 				Expect(ccf.ErrorCode).To(BeEquivalentTo(0x1337))
 				Expect(ccf.ReasonPhrase).To(Equal("test error"))
-				hdrs := parsePacket(p.buffer.Data)
+				hdrs, rest := parsePacket(p.buffer.Data)
 				Expect(hdrs).To(HaveLen(2))
 				Expect(hdrs[0].Type).To(Equal(protocol.PacketTypeInitial))
 				Expect(hdrs[1].Type).To(Equal(protocol.PacketType0RTT))
+				Expect(rest).To(BeEmpty())
 			})
 		})
 
@@ -573,7 +576,7 @@ var _ = Describe("Packet packer", func() {
 				Expect(packet.packets).To(HaveLen(1))
 				// cut off the tag that the mock sealer added
 				// packet.buffer.Data = packet.buffer.Data[:packet.buffer.Len()-protocol.ByteCount(sealer.Overhead())]
-				hdr, _, _, err := wire.ParsePacket(packet.buffer.Data, len(packer.getDestConnID()))
+				hdr, _, _, err := wire.ParseLongHeaderPacket(packet.buffer.Data)
 				Expect(err).ToNot(HaveOccurred())
 				r := bytes.NewReader(packet.buffer.Data)
 				extHdr, err := hdr.ParseExtended(r, packer.version)
@@ -613,13 +616,12 @@ var _ = Describe("Packet packer", func() {
 				Expect(err).ToNot(HaveOccurred())
 				// cut off the tag that the mock sealer added
 				packet.buffer.Data = packet.buffer.Data[:packet.buffer.Len()-protocol.ByteCount(sealer.Overhead())]
-				hdr, _, _, err := wire.ParsePacket(packet.buffer.Data, len(packer.getDestConnID()))
+				Expect(wire.IsLongHeader(packet.buffer.Data[0])).To(BeFalse())
+				r := bytes.NewReader(packet.buffer.Data[1+len(connID):])
+				pn, pnLen, err := wire.ReadPacketNumber(r, packet.buffer.Data[0])
 				Expect(err).ToNot(HaveOccurred())
-				r := bytes.NewReader(packet.buffer.Data)
-				extHdr, err := hdr.ParseExtended(r, packer.version)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(extHdr.PacketNumberLen).To(Equal(protocol.PacketNumberLen1))
-				Expect(r.Len()).To(Equal(4 - 1 /* packet number length */))
+				Expect(pn).To(Equal(protocol.PacketNumber(0x42)))
+				Expect(pnLen).To(Equal(protocol.PacketNumberLen1))
 				// the first byte of the payload should be a PADDING frame...
 				firstPayloadByte, err := r.ReadByte()
 				Expect(err).ToNot(HaveOccurred())
@@ -853,9 +855,10 @@ var _ = Describe("Packet packer", func() {
 				Expect(p.packets[0].EncryptionLevel()).To(Equal(protocol.EncryptionInitial))
 				Expect(p.packets[0].frames).To(HaveLen(1))
 				Expect(p.packets[0].frames[0].Frame.(*wire.CryptoFrame).Data).To(Equal([]byte("initial")))
-				hdrs := parsePacket(p.buffer.Data)
+				hdrs, rest := parsePacket(p.buffer.Data)
 				Expect(hdrs).To(HaveLen(1))
 				Expect(hdrs[0].Type).To(Equal(protocol.PacketTypeInitial))
+				Expect(rest).To(BeEmpty())
 			})
 
 			It("packs a maximum size Handshake packet", func() {
@@ -911,10 +914,11 @@ var _ = Describe("Packet packer", func() {
 				Expect(p.packets[1].EncryptionLevel()).To(Equal(protocol.EncryptionHandshake))
 				Expect(p.packets[1].frames).To(HaveLen(1))
 				Expect(p.packets[1].frames[0].Frame.(*wire.CryptoFrame).Data).To(Equal([]byte("handshake")))
-				hdrs := parsePacket(p.buffer.Data)
+				hdrs, rest := parsePacket(p.buffer.Data)
 				Expect(hdrs).To(HaveLen(2))
 				Expect(hdrs[0].Type).To(Equal(protocol.PacketTypeInitial))
 				Expect(hdrs[1].Type).To(Equal(protocol.PacketTypeHandshake))
+				Expect(rest).To(BeEmpty())
 			})
 
 			It("packs a coalesced packet with Initial / super short Handshake, and pads it", func() {
@@ -943,10 +947,11 @@ var _ = Describe("Packet packer", func() {
 				Expect(p.packets[1].EncryptionLevel()).To(Equal(protocol.EncryptionHandshake))
 				Expect(p.packets[1].frames).To(HaveLen(1))
 				Expect(p.packets[1].frames[0].Frame).To(BeAssignableToTypeOf(&wire.PingFrame{}))
-				hdrs := parsePacket(p.buffer.Data)
+				hdrs, rest := parsePacket(p.buffer.Data)
 				Expect(hdrs).To(HaveLen(2))
 				Expect(hdrs[0].Type).To(Equal(protocol.PacketTypeInitial))
 				Expect(hdrs[1].Type).To(Equal(protocol.PacketTypeHandshake))
+				Expect(rest).To(BeEmpty())
 			})
 
 			It("packs a coalesced packet with super short Initial / super short Handshake, and pads it", func() {
@@ -972,10 +977,11 @@ var _ = Describe("Packet packer", func() {
 				Expect(p.packets[1].EncryptionLevel()).To(Equal(protocol.EncryptionHandshake))
 				Expect(p.packets[1].frames).To(HaveLen(1))
 				Expect(p.packets[1].frames[0].Frame).To(BeAssignableToTypeOf(&wire.PingFrame{}))
-				hdrs := parsePacket(p.buffer.Data)
+				hdrs, rest := parsePacket(p.buffer.Data)
 				Expect(hdrs).To(HaveLen(2))
 				Expect(hdrs[0].Type).To(Equal(protocol.PacketTypeInitial))
 				Expect(hdrs[1].Type).To(Equal(protocol.PacketTypeHandshake))
+				Expect(rest).To(BeEmpty())
 			})
 
 			It("packs a coalesced packet with Initial / super short 1-RTT, and pads it", func() {
@@ -1005,10 +1011,12 @@ var _ = Describe("Packet packer", func() {
 				Expect(p.packets[1].EncryptionLevel()).To(Equal(protocol.Encryption1RTT))
 				Expect(p.packets[1].frames).To(HaveLen(1))
 				Expect(p.packets[1].frames[0].Frame).To(BeAssignableToTypeOf(&wire.PingFrame{}))
-				hdrs := parsePacket(p.buffer.Data)
-				Expect(hdrs).To(HaveLen(2))
+				hdrs, rest := parsePacket(p.buffer.Data)
+				Expect(hdrs).To(HaveLen(1))
 				Expect(hdrs[0].Type).To(Equal(protocol.PacketTypeInitial))
-				Expect(hdrs[1].IsLongHeader).To(BeFalse())
+				Expect(rest).ToNot(BeEmpty())
+				Expect(wire.IsLongHeader(rest[0])).To(BeFalse())
+				Expect(wire.ParseConnectionID(rest, len(connID))).To(Equal(connID))
 			})
 
 			It("packs a coalesced packet with Initial / 0-RTT, and pads it", func() {
@@ -1041,10 +1049,11 @@ var _ = Describe("Packet packer", func() {
 				Expect(p.packets[1].EncryptionLevel()).To(Equal(protocol.Encryption0RTT))
 				Expect(p.packets[1].frames).To(HaveLen(1))
 				Expect(p.packets[1].frames[0].Frame.(*wire.StreamFrame).Data).To(Equal([]byte("foobar")))
-				hdrs := parsePacket(p.buffer.Data)
+				hdrs, rest := parsePacket(p.buffer.Data)
 				Expect(hdrs).To(HaveLen(2))
 				Expect(hdrs[0].Type).To(Equal(protocol.PacketTypeInitial))
 				Expect(hdrs[1].Type).To(Equal(protocol.PacketType0RTT))
+				Expect(rest).To(BeEmpty())
 			})
 
 			It("packs a coalesced packet with Handshake / 1-RTT", func() {
@@ -1074,13 +1083,11 @@ var _ = Describe("Packet packer", func() {
 				Expect(p.packets[1].EncryptionLevel()).To(Equal(protocol.Encryption1RTT))
 				Expect(p.packets[1].frames).To(HaveLen(1))
 				Expect(p.packets[1].frames[0].Frame.(*wire.StreamFrame).Data).To(Equal([]byte("foobar")))
-				hdr, _, rest, err := wire.ParsePacket(p.buffer.Data, 0)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(hdr.Type).To(Equal(protocol.PacketTypeHandshake))
-				hdr, _, rest, err = wire.ParsePacket(rest, 0)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(hdr.IsLongHeader).To(BeFalse())
-				Expect(rest).To(BeEmpty())
+				hdrs, rest := parsePacket(p.buffer.Data)
+				Expect(hdrs).To(HaveLen(1))
+				Expect(hdrs[0].Type).To(Equal(protocol.PacketTypeHandshake))
+				Expect(rest).ToNot(BeEmpty())
+				Expect(wire.IsLongHeader(rest[0])).To(BeFalse())
 			})
 
 			It("doesn't add a coalesced packet if the remaining size is smaller than MaxCoalescedPacketSize", func() {
@@ -1122,7 +1129,7 @@ var _ = Describe("Packet packer", func() {
 				Expect(packet.packets).To(HaveLen(1))
 				// cut off the tag that the mock sealer added
 				// packet.buffer.Data = packet.buffer.Data[:packet.buffer.Len()-protocol.ByteCount(sealer.Overhead())]
-				hdr, _, _, err := wire.ParsePacket(packet.buffer.Data, len(packer.getDestConnID()))
+				hdr, _, _, err := wire.ParseLongHeaderPacket(packet.buffer.Data)
 				Expect(err).ToNot(HaveOccurred())
 				r := bytes.NewReader(packet.buffer.Data)
 				extHdr, err := hdr.ParseExtended(r, packer.version)

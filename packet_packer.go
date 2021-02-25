@@ -23,6 +23,7 @@ type packer interface {
 	PackConnectionClose(*qerr.QuicError) (*coalescedPacket, error)
 
 	HandleTransportParameters(*wire.TransportParameters)
+	SetFirstClientDatagramSize(protocol.ByteCount)
 	SetToken([]byte)
 }
 
@@ -844,6 +845,10 @@ func (p *packetPacker) appendPacket(
 
 func (p *packetPacker) SetToken(token []byte) {
 	p.token = token
+}
+
+func (p *packetPacker) SetFirstClientDatagramSize(size protocol.ByteCount) {
+	p.maxPacketSize = utils.MinByteCount(p.maxPacketSize, size)
 }
 
 func (p *packetPacker) HandleTransportParameters(params *wire.TransportParameters) {

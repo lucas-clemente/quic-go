@@ -597,6 +597,7 @@ var _ = Describe("Session", func() {
 					encryptionLevel: protocol.Encryption1RTT,
 				}, nil
 			})
+			packer.EXPECT().SetFirstClientDatagramSize(gomock.Any())
 			gomock.InOrder(
 				tracer.EXPECT().StartedConnection(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()),
 				tracer.EXPECT().ReceivedPacket(gomock.Any(), gomock.Any(), gomock.Any()),
@@ -764,6 +765,7 @@ var _ = Describe("Session", func() {
 				hdr:             hdr,
 				data:            []byte{0}, // one PADDING frame
 			}, nil)
+			packer.EXPECT().SetFirstClientDatagramSize(gomock.Any())
 			rph := mockackhandler.NewMockReceivedPacketHandler(mockCtrl)
 			gomock.InOrder(
 				rph.EXPECT().IsPotentiallyDuplicate(protocol.PacketNumber(0x1337), protocol.EncryptionInitial),
@@ -793,6 +795,7 @@ var _ = Describe("Session", func() {
 				hdr:             hdr,
 				data:            buf.Bytes(),
 			}, nil)
+			packer.EXPECT().SetFirstClientDatagramSize(gomock.Any())
 			rph := mockackhandler.NewMockReceivedPacketHandler(mockCtrl)
 			gomock.InOrder(
 				rph.EXPECT().IsPotentiallyDuplicate(protocol.PacketNumber(0x1337), protocol.Encryption1RTT),
@@ -1041,6 +1044,7 @@ var _ = Describe("Session", func() {
 				hdr:             hdr1,
 				data:            []byte{0}, // one PADDING frame
 			}, nil)
+			packer.EXPECT().SetFirstClientDatagramSize(gomock.Any())
 			p1 := getPacket(hdr1, nil)
 			tracer.EXPECT().StartedConnection(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 			tracer.EXPECT().ReceivedPacket(gomock.Any(), protocol.ByteCount(len(p1.data)), gomock.Any())
@@ -1086,6 +1090,7 @@ var _ = Describe("Session", func() {
 				packet.remoteAddr = &net.IPAddr{IP: net.IPv4(192, 168, 0, 100)}
 				tracer.EXPECT().StartedConnection(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
 				tracer.EXPECT().ReceivedPacket(gomock.Any(), protocol.ByteCount(len(packet.data)), gomock.Any())
+				packer.EXPECT().SetFirstClientDatagramSize(gomock.Any())
 				Expect(sess.handlePacketImpl(packet)).To(BeTrue())
 			})
 		})
@@ -1124,6 +1129,7 @@ var _ = Describe("Session", func() {
 					}, nil
 				})
 				tracer.EXPECT().ReceivedPacket(gomock.Any(), protocol.ByteCount(len(packet.data)), gomock.Any())
+				packer.EXPECT().SetFirstClientDatagramSize(gomock.Any())
 				Expect(sess.handlePacketImpl(packet)).To(BeTrue())
 			})
 
@@ -1152,6 +1158,7 @@ var _ = Describe("Session", func() {
 					tracer.EXPECT().ReceivedPacket(gomock.Any(), protocol.ByteCount(len(packet1.data)), gomock.Any()),
 					tracer.EXPECT().ReceivedPacket(gomock.Any(), protocol.ByteCount(len(packet2.data)), gomock.Any()),
 				)
+				packer.EXPECT().SetFirstClientDatagramSize(gomock.Any())
 				packet1.data = append(packet1.data, packet2.data...)
 				Expect(sess.handlePacketImpl(packet1)).To(BeTrue())
 			})
@@ -1175,6 +1182,7 @@ var _ = Describe("Session", func() {
 					tracer.EXPECT().BufferedPacket(gomock.Any()),
 					tracer.EXPECT().ReceivedPacket(gomock.Any(), protocol.ByteCount(len(packet2.data)), gomock.Any()),
 				)
+				packer.EXPECT().SetFirstClientDatagramSize(gomock.Any())
 				packet1.data = append(packet1.data, packet2.data...)
 				Expect(sess.handlePacketImpl(packet1)).To(BeTrue())
 
@@ -1194,6 +1202,7 @@ var _ = Describe("Session", func() {
 						hdr:             &wire.ExtendedHeader{},
 					}, nil
 				})
+				packer.EXPECT().SetFirstClientDatagramSize(gomock.Any())
 				_, packet2 := getPacketWithLength(wrongConnID, 123)
 				// don't EXPECT any more calls to unpacker.Unpack()
 				gomock.InOrder(

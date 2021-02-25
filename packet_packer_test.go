@@ -854,6 +854,28 @@ var _ = Describe("Packet packer", func() {
 					_, err = packer.PackPacket()
 					Expect(err).ToNot(HaveOccurred())
 				})
+
+				It("reduces the max packet size when receiving the first packet from the client", func() {
+					pnManager.EXPECT().PeekPacketNumber(protocol.EncryptionInitial).Return(protocol.PacketNumber(0x42), protocol.PacketNumberLen2).Times(2)
+					pnManager.EXPECT().PopPacketNumber(protocol.EncryptionInitial).Return(protocol.PacketNumber(0x42)).Times(2)
+					sealingManager.EXPECT().GetInitialSealer().Return(getSealer(), nil).Times(2)
+					initialStream.EXPECT().HasData().Times(2)
+					ackFramer.EXPECT().GetAckFrame(protocol.EncryptionInitial, false).Times(2)
+
+					// make sure the packet size is not increased
+					packer.SetFirstClientDatagramSize(maxPacketSize + 10)
+					packer.retransmissionQueue.AddInitial(&wire.PingFrame{})
+					p, err := packer.MaybePackProbePacket(protocol.EncryptionInitial)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(p.buffer.Len()).To(Equal(maxPacketSize))
+
+					// make sure the packet size is reduced
+					packer.SetFirstClientDatagramSize(maxPacketSize - 10)
+					packer.retransmissionQueue.AddInitial(&wire.PingFrame{})
+					p, err = packer.MaybePackProbePacket(protocol.EncryptionInitial)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(p.buffer.Len()).To(Equal(maxPacketSize - 10))
+				})
 			})
 		})
 

@@ -123,6 +123,18 @@ func (mr *MockPackerMockRecorder) PackPacket() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PackPacket", reflect.TypeOf((*MockPacker)(nil).PackPacket))
 }
 
+// SetFirstClientDatagramSize mocks base method
+func (m *MockPacker) SetFirstClientDatagramSize(arg0 protocol.ByteCount) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetFirstClientDatagramSize", arg0)
+}
+
+// SetFirstClientDatagramSize indicates an expected call of SetFirstClientDatagramSize
+func (mr *MockPackerMockRecorder) SetFirstClientDatagramSize(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFirstClientDatagramSize", reflect.TypeOf((*MockPacker)(nil).SetFirstClientDatagramSize), arg0)
+}
+
 // SetToken mocks base method
 func (m *MockPacker) SetToken(arg0 []byte) {
 	m.ctrl.T.Helper()

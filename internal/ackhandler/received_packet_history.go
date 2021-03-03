@@ -101,19 +101,20 @@ func (h *receivedPacketHistory) DeleteBelow(p protocol.PacketNumber) {
 	}
 }
 
-// GetAckRanges gets a slice of all AckRanges that can be used in an AckFrame
-func (h *receivedPacketHistory) GetAckRanges() []wire.AckRange {
+// SetAckRanges gets a slice of all AckRanges that can be used in an AckFrame
+func (h *receivedPacketHistory) SetAckRanges(f *wire.AckFrame) {
+	// ranges is guaranteed to never have more than protocol.MaxNumAckRanges elements
+	f.AckRanges = f.AckRanges[:h.ranges.Len()]
 	if h.ranges.Len() == 0 {
-		return nil
+		return
 	}
 
-	ackRanges := make([]wire.AckRange, h.ranges.Len())
 	i := 0
 	for el := h.ranges.Back(); el != nil; el = el.Prev() {
-		ackRanges[i] = wire.AckRange{Smallest: el.Value.Start, Largest: el.Value.End}
+		f.AckRanges[i].Smallest = el.Value.Start
+		f.AckRanges[i].Largest = el.Value.End
 		i++
 	}
-	return ackRanges
 }
 
 func (h *receivedPacketHistory) GetHighestAckRange() wire.AckRange {

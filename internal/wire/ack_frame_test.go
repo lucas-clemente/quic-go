@@ -28,6 +28,18 @@ var _ = Describe("ACK Frame (for IETF QUIC)", func() {
 			Expect(b.Len()).To(BeZero())
 		})
 
+		It("uses an ACK frame from the pool", func() {
+			data := []byte{0x2}
+			data = append(data, encodeVarInt(100)...) // largest acked
+			data = append(data, encodeVarInt(0)...)   // delay
+			data = append(data, encodeVarInt(0)...)   // num blocks
+			data = append(data, encodeVarInt(10)...)  // first ack block
+			b := bytes.NewReader(data)
+			frame, err := parseAckFrame(b, protocol.AckDelayExponent, versionIETFFrames)
+			Expect(err).ToNot(HaveOccurred())
+			frame.PutBack() // this will panic if the frame is not from the pool
+		})
+
 		It("parses an ACK frame that only acks a single packet", func() {
 			data := []byte{0x2}
 			data = append(data, encodeVarInt(55)...) // largest acked

@@ -6,19 +6,24 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 )
 
-var pool sync.Pool
+var streamFramePool, ackFramePool sync.Pool
 
 func init() {
-	pool.New = func() interface{} {
+	streamFramePool.New = func() interface{} {
 		return &StreamFrame{
 			Data:     make([]byte, 0, protocol.MaxReceivePacketSize),
 			fromPool: true,
 		}
 	}
+	ackFramePool.New = func() interface{} {
+		return &AckFrame{
+			AckRanges: make([]AckRange, 0, protocol.MaxNumAckRanges),
+		}
+	}
 }
 
 func GetStreamFrame() *StreamFrame {
-	f := pool.Get().(*StreamFrame)
+	f := streamFramePool.Get().(*StreamFrame)
 	return f
 }
 
@@ -27,7 +32,20 @@ func putStreamFrame(f *StreamFrame) {
 		return
 	}
 	if protocol.ByteCount(cap(f.Data)) != protocol.MaxReceivePacketSize {
-		panic("wire.PutStreamFrame called with packet of wrong size!")
+		panic("wire.putStreamFrame called with frame of wrong size!")
 	}
-	pool.Put(f)
+	streamFramePool.Put(f)
+}
+
+// GetAckFrame gets an ACK frame from the pool.
+// It is the callers responsibility to fill *all* of the fields of the returned ACK frame.
+func GetAckFrame() *AckFrame {
+	return ackFramePool.Get().(*AckFrame)
+}
+
+func putAckFrame(f *AckFrame) {
+	if cap(f.AckRanges) != protocol.MaxNumAckRanges {
+		panic("wire.putAckFrame called with frame with wrong ACK range list length!")
+	}
+	ackFramePool.Put(f)
 }

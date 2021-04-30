@@ -19,6 +19,11 @@ type roundTripCloser interface {
 	io.Closer
 }
 
+type roundTripAliveCloser interface {
+	roundTripCloser
+	alive() bool
+}
+
 // RoundTripper implements the http.RoundTripper interface
 type RoundTripper struct {
 	mutex sync.Mutex
@@ -56,7 +61,7 @@ type RoundTripper struct {
 	// Zero means to use a default limit.
 	MaxResponseHeaderBytes int64
 
-	clients map[string]roundTripCloser
+	clients map[string]roundTripAliveCloser
 }
 
 // RoundTripOpt are options for the Transport.RoundTripOpt method.
@@ -127,12 +132,8 @@ func (r *RoundTripper) getClient(hostname string, onlyCached bool) (http.RoundTr
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	if r.clients == nil {
-		r.clients = make(map[string]roundTripCloser)
-	}
-
 	client, ok := r.clients[hostname]
-	if !ok {
+	if !ok || !client.alive() {
 		if onlyCached {
 			return nil, ErrNoCachedConn
 		}
@@ -150,6 +151,9 @@ func (r *RoundTripper) getClient(hostname string, onlyCached bool) (http.RoundTr
 		)
 		if err != nil {
 			return nil, err
+		}
+		if r.clients == nil {
+			r.clients = make(map[string]roundTripAliveCloser)
 		}
 		r.clients[hostname] = client
 	}

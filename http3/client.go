@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
@@ -51,6 +52,7 @@ type client struct {
 	dialOnce     sync.Once
 	dialer       func(network, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error)
 	handshakeErr error
+	dead         uint32
 
 	requestWriter *requestWriter
 
@@ -102,6 +104,14 @@ func newClient(
 	}, nil
 }
 
+func (c *client) alive() bool {
+	return atomic.LoadUint32(&c.dead) == 0
+}
+
+func (c *client) setDead() {
+	atomic.StoreUint32(&c.dead, 1)
+}
+
 func (c *client) dial() error {
 	var err error
 	if c.dialer != nil {
@@ -110,6 +120,7 @@ func (c *client) dial() error {
 		c.session, err = dialAddr(c.hostname, c.tlsConf, c.config)
 	}
 	if err != nil {
+		c.setDead()
 		return err
 	}
 
@@ -118,6 +129,7 @@ func (c *client) dial() error {
 		if err := c.setupSession(); err != nil {
 			c.logger.Debugf("Setting up session failed: %s", err)
 			c.session.CloseWithError(quic.ErrorCode(errorInternalError), "")
+			c.setDead()
 		}
 	}()
 
@@ -140,10 +152,11 @@ func (c *client) setupSession() error {
 }
 
 func (c *client) handleUnidirectionalStreams() {
-	for {
+	for c.alive() {
 		str, err := c.session.AcceptUniStream(context.Background())
 		if err != nil {
 			c.logger.Debugf("accepting unidirectional stream failed: %s", err)
+			c.setDead()
 			return
 		}
 
@@ -163,6 +176,7 @@ func (c *client) handleUnidirectionalStreams() {
 			case streamTypePushStream:
 				// We never increased the Push ID, so we don't expect any push streams.
 				c.session.CloseWithError(quic.ErrorCode(errorIDError), "")
+				c.setDead()
 				return
 			default:
 				str.CancelRead(quic.ErrorCode(errorStreamCreationError))
@@ -171,11 +185,13 @@ func (c *client) handleUnidirectionalStreams() {
 			f, err := parseNextFrame(str)
 			if err != nil {
 				c.session.CloseWithError(quic.ErrorCode(errorFrameError), "")
+				c.setDead()
 				return
 			}
 			sf, ok := f.(*settingsFrame)
 			if !ok {
 				c.session.CloseWithError(quic.ErrorCode(errorMissingSettings), "")
+				c.setDead()
 				return
 			}
 			if !sf.Datagram {
@@ -186,6 +202,7 @@ func (c *client) handleUnidirectionalStreams() {
 			// Note: ConnectionState() will block until the handshake is complete (relevant when using 0-RTT).
 			if c.opts.EnableDatagram && !c.session.ConnectionState().SupportsDatagrams {
 				c.session.CloseWithError(quic.ErrorCode(errorSettingsError), "missing QUIC Datagram support")
+				c.setDead()
 			}
 		}()
 	}
@@ -233,6 +250,7 @@ func (c *client) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	str, err := c.session.OpenStreamSync(req.Context())
 	if err != nil {
+		c.setDead()
 		return nil, err
 	}
 
@@ -260,6 +278,7 @@ func (c *client) RoundTrip(req *http.Request) (*http.Response, error) {
 			if rerr.err != nil {
 				reason = rerr.err.Error()
 			}
+			c.setDead()
 			c.session.CloseWithError(quic.ErrorCode(rerr.connErr), reason)
 		}
 	}
@@ -322,6 +341,7 @@ func (c *client) doRequest(
 	}
 	respBody := newResponseBody(str, reqDone, func() {
 		c.session.CloseWithError(quic.ErrorCode(errorFrameUnexpected), "")
+		c.setDead()
 	})
 
 	// Rules for when to set Content-Length are defined in https://tools.ietf.org/html/rfc7230#section-3.3.2.

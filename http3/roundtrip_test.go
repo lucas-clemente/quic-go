@@ -29,6 +29,10 @@ func (m *mockClient) Close() error {
 	return nil
 }
 
+func (m *mockClient) alive() bool {
+	return !m.closed
+}
+
 var _ roundTripCloser = &mockClient{}
 
 type mockBody struct {
@@ -242,7 +246,7 @@ var _ = Describe("RoundTripper", func() {
 
 	Context("closing", func() {
 		It("closes", func() {
-			rt.clients = make(map[string]roundTripCloser)
+			rt.clients = make(map[string]roundTripAliveCloser)
 			cl := &mockClient{}
 			rt.clients["foo.bar"] = cl
 			err := rt.Close()

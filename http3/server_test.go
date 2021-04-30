@@ -122,6 +122,7 @@ var _ = Describe("Server", func() {
 			sess = mockquic.NewMockEarlySession(mockCtrl)
 			addr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1337}
 			sess.EXPECT().RemoteAddr().Return(addr).AnyTimes()
+			sess.EXPECT().ConnectionState().AnyTimes()
 			sess.EXPECT().LocalAddr().AnyTimes()
 		})
 
@@ -409,6 +410,7 @@ var _ = Describe("Server", func() {
 				str.EXPECT().Context().Return(reqContext)
 				str.EXPECT().Write(gomock.Any()).DoAndReturn(responseBuf.Write).AnyTimes()
 				str.EXPECT().CancelRead(quic.ErrorCode(errorNoError))
+				sess.EXPECT().ConnectionState().AnyTimes()
 				str.EXPECT().Close().Do(func() { close(done) })
 
 				s.handleConn(sess)

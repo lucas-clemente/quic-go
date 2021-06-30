@@ -273,7 +273,7 @@ func (s *Server) handleConn(sess quic.EarlySession) {
 				sess.CloseWithError(quic.ApplicationErrorCode(errorFrameUnexpected), "")
 			})
 			if rerr.err != nil || rerr.streamErr != 0 || rerr.connErr != 0 {
-				s.logger.Debugf("Handling request failed: %s", err)
+				s.logger.Debugf("Handling request failed: %s", rerr.err)
 				if rerr.streamErr != 0 {
 					str.CancelWrite(quic.StreamErrorCode(rerr.streamErr))
 				}

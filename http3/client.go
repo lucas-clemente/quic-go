@@ -135,7 +135,10 @@ func (c *client) setupSession() error {
 	buf := &bytes.Buffer{}
 	quicvarint.Write(buf, streamTypeControlStream)
 	// send the SETTINGS frame
-	(&settingsFrame{Datagram: c.opts.EnableDatagram}).Write(buf)
+	(&settingsFrame{
+		Datagram:     c.opts.EnableDatagram,
+		WebTransport: c.opts.EnableWebTransport,
+	}).Write(buf)
 	_, err = str.Write(buf.Bytes())
 	return err
 }

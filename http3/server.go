@@ -152,7 +152,7 @@ func (s *Server) serveImpl(tlsConf *tls.Config, conn net.PacketConn) error {
 		return errors.New("use of http3.Server without http.Server")
 	}
 	s.loggerOnce.Do(func() {
-		s.logger = utils.DefaultLogger.WithPrefix("server")
+		s.logger = utils.DefaultLogger.WithPrefix("http/3")
 	})
 
 	// The tls.Config we pass to Listen needs to have the GetConfigForClient callback set.

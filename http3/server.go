@@ -35,10 +35,14 @@ const (
 )
 
 const (
-	streamTypeControlStream      = 0
-	streamTypePushStream         = 1
-	streamTypeQPACKEncoderStream = 2
-	streamTypeQPACKDecoderStream = 3
+	streamTypeControlStream        = 0
+	streamTypePushStream           = 1
+	streamTypeQPACKEncoderStream   = 2
+	streamTypeQPACKDecoderStream   = 3
+	streamTypeUnidirectionalStream = 0x54
+	streamTypeWebTransportStream   = 0x41 // Client-initiated bidirectional
+	// There is no definition for server-initiated bidirectional streams.
+	// See https://tools.ietf.org/id/draft-vvv-webtransport-http3-03.html#section-4.3.
 )
 
 func versionToALPN(v protocol.VersionNumber) string {
@@ -304,6 +308,9 @@ func (s *Server) handleUnidirectionalStreams(sess quic.EarlySession) {
 			case streamTypePushStream: // only the server can push
 				sess.CloseWithError(quic.ApplicationErrorCode(errorStreamCreationError), "")
 				return
+			case streamTypeUnidirectionalStream:
+				s.logger.Debugf("Opened client unidirectional stream: %v", str.StreamID())
+				return // FIXME: do something here
 			default:
 				str.CancelRead(quic.StreamErrorCode(errorStreamCreationError))
 				return

@@ -46,6 +46,11 @@ type RoundTripper struct {
 	// See https://www.ietf.org/archive/id/draft-schinazi-masque-h3-datagram-02.html.
 	EnableDatagrams bool
 
+	// Enable support for HTTP/3 WebTransport.
+	// If set to true, the H3 ENABLE_WEBTRANSPORT setting will be set.
+	// See https://www.ietf.org/archive/id/draft-vvv-webtransport-http3-03.html.
+	EnableWebTransport bool
+
 	// Dial specifies an optional dial function for creating QUIC
 	// connections for requests.
 	// If Dial is nil, quic.DialAddrEarly will be used.
@@ -142,6 +147,7 @@ func (r *RoundTripper) getClient(hostname string, onlyCached bool) (http.RoundTr
 			r.TLSClientConfig,
 			&roundTripperOpts{
 				EnableDatagram:     r.EnableDatagrams,
+				EnableWebTransport: r.EnableWebTransport,
 				DisableCompression: r.DisableCompression,
 				MaxHeaderBytes:     r.MaxResponseHeaderBytes,
 			},

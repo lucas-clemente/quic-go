@@ -85,11 +85,17 @@ func (f *headersFrame) Write(b *bytes.Buffer) {
 	quicvarint.Write(b, f.Length)
 }
 
-const settingDatagram = 0x276
+const (
+	settingDatagram = 0x276
+
+	// https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3#section-7.2
+	settingWebTransport = 0x2b603742
+)
 
 type settingsFrame struct {
-	Datagram bool
-	other    map[uint64]uint64 // all settings that we don't explicitly recognize
+	Datagram     bool
+	WebTransport bool
+	other        map[uint64]uint64 // all settings that we don't explicitly recognize
 }
 
 func parseSettingsFrame(r io.Reader, l uint64) (*settingsFrame, error) {
@@ -105,7 +111,7 @@ func parseSettingsFrame(r io.Reader, l uint64) (*settingsFrame, error) {
 	}
 	frame := &settingsFrame{}
 	b := bytes.NewReader(buf)
-	var readDatagram bool
+	var readDatagram, readWebTransport bool
 	for b.Len() > 0 {
 		id, err := quicvarint.Read(b)
 		if err != nil { // should not happen. We allocated the whole frame already.
@@ -126,6 +132,15 @@ func parseSettingsFrame(r io.Reader, l uint64) (*settingsFrame, error) {
 				return nil, fmt.Errorf("invalid value for H3_DATAGRAM: %d", val)
 			}
 			frame.Datagram = val == 1
+		case settingWebTransport:
+			if readWebTransport {
+				return nil, fmt.Errorf("duplicate setting: %d", id)
+			}
+			readWebTransport = true
+			if val != 0 && val != 1 {
+				return nil, fmt.Errorf("invalid value for ENABLE_WEBTRANSPORT: %d", val)
+			}
+			frame.WebTransport = val == 1
 		default:
 			if _, ok := frame.other[id]; ok {
 				return nil, fmt.Errorf("duplicate setting: %d", id)
@@ -148,9 +163,16 @@ func (f *settingsFrame) Write(b *bytes.Buffer) {
 	if f.Datagram {
 		l += quicvarint.Len(settingDatagram) + quicvarint.Len(1)
 	}
+	if f.WebTransport {
+		l += quicvarint.Len(settingWebTransport) + quicvarint.Len(1)
+	}
 	quicvarint.Write(b, uint64(l))
 	if f.Datagram {
 		quicvarint.Write(b, settingDatagram)
+		quicvarint.Write(b, 1)
+	}
+	if f.WebTransport {
+		quicvarint.Write(b, settingWebTransport)
 		quicvarint.Write(b, 1)
 	}
 	for id, val := range f.other {

@@ -92,6 +92,11 @@ type Server struct {
 	// See https://www.ietf.org/archive/id/draft-schinazi-masque-h3-datagram-02.html.
 	EnableDatagrams bool
 
+	// Enable support for HTTP/3 WebTransport.
+	// If set to true, the H3 ENABLE_WEBTRANSPORT setting will be set.
+	// See https://www.ietf.org/archive/id/draft-vvv-webtransport-http3-03.html.
+	EnableWebTransport bool
+
 	port uint32 // used atomically
 
 	mutex     sync.Mutex
@@ -236,7 +241,10 @@ func (s *Server) handleConn(sess quic.EarlySession) {
 	}
 	buf := &bytes.Buffer{}
 	quicvarint.Write(buf, streamTypeControlStream) // stream type
-	(&settingsFrame{Datagram: s.EnableDatagrams}).Write(buf)
+	(&settingsFrame{
+		Datagram:     s.EnableDatagrams,
+		WebTransport: s.EnableWebTransport,
+	}).Write(buf)
 	str.Write(buf.Bytes())
 
 	go s.handleUnidirectionalStreams(sess)

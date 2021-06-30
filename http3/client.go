@@ -39,6 +39,7 @@ var dialAddr = quic.DialAddrEarly
 type roundTripperOpts struct {
 	DisableCompression bool
 	EnableDatagram     bool
+	EnableWebTransport bool
 	MaxHeaderBytes     int64
 }
 

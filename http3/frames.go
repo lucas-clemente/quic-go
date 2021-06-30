@@ -142,6 +142,11 @@ func parseSettingsFrame(r io.Reader, l uint64) (*settingsFrame, error) {
 			}
 			frame.WebTransport = val == 1
 		default:
+			// Ignore reserved setting IDs of the form 0x1f * N + 0x21.
+			// https://datatracker.ietf.org/doc/html/draft-ietf-quic-http-34#section-7.2.4.1
+			if (id-0x21)%0x1f == 0 {
+				continue
+			}
 			if _, ok := frame.other[id]; ok {
 				return nil, fmt.Errorf("duplicate setting: %d", id)
 			}

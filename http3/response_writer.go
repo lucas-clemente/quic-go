@@ -9,6 +9,7 @@ import (
 
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/internal/utils"
+
 	"github.com/marten-seemann/qpack"
 )
 
@@ -22,9 +23,24 @@ type DataStreamer interface {
 	DataStream() quic.Stream
 }
 
+// The DatagramWriter interface is implemented by ResponseWriters that allow an
+// HTTP handler to send QUIC datagrams from the underlying connection.
+// Both endpoints need to negotiate datagram support in order for this to work.
+type DatagramWriter interface {
+	WriteDatagram([]byte) error
+}
+
+// The DatagramReader interface is implemented by ResponseWriters that allow an
+// HTTP handler to receive QUIC datagrams from the underlying connection.
+// Both endpoints need to negotiate datagram support in order for this to work.
+type DatagramReader interface {
+	ReadDatagram() ([]byte, error)
+}
+
 type responseWriter struct {
 	stream         quic.Stream // needed for DataStream()
 	bufferedStream *bufio.Writer
+	session        quic.Session // needed to allow access to datagram sending / receiving
 
 	header         http.Header
 	status         int // status code passed to WriteHeader
@@ -38,13 +54,16 @@ var (
 	_ http.ResponseWriter = &responseWriter{}
 	_ http.Flusher        = &responseWriter{}
 	_ DataStreamer        = &responseWriter{}
+	_ DatagramWriter      = &responseWriter{}
+	_ DatagramReader      = &responseWriter{}
 )
 
-func newResponseWriter(stream quic.Stream, logger utils.Logger) *responseWriter {
+func newResponseWriter(session quic.Session, stream quic.Stream, logger utils.Logger) *responseWriter {
 	return &responseWriter{
 		header:         http.Header{},
 		stream:         stream,
 		bufferedStream: bufio.NewWriter(stream),
+		session:        session,
 		logger:         logger,
 	}
 }
@@ -117,6 +136,16 @@ func (w *responseWriter) DataStream() quic.Stream {
 	w.dataStreamUsed = true
 	w.Flush()
 	return w.stream
+}
+
+func (w *responseWriter) WriteDatagram(b []byte) error {
+	// FIXME: write the flow identifier
+	return w.session.SendMessage(b)
+}
+
+func (w *responseWriter) ReadDatagram() ([]byte, error) {
+	// FIXME: read the flow identifier
+	return w.session.ReceiveMessage()
 }
 
 // copied from http2/http2.go

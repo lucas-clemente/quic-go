@@ -392,7 +392,7 @@ func (s *Server) handleRequest(sess quic.Session, str quic.Stream, decoder *qpac
 	ctx = context.WithValue(ctx, ServerContextKey, s)
 	ctx = context.WithValue(ctx, http.LocalAddrContextKey, sess.LocalAddr())
 	req = req.WithContext(ctx)
-	r := newResponseWriter(str, s.logger)
+	r := newResponseWriter(sess, str, s.logger)
 	defer func() {
 		if !r.usedDataStream() {
 			r.Flush()

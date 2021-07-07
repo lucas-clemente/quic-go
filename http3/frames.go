@@ -25,6 +25,13 @@ func (br *byteReaderImpl) ReadByte() (byte, error) {
 	return b[0], nil
 }
 
+const (
+	frameTypeData               = 0x0
+	frameTypeHeaders            = 0x1
+	frameTypeSettings           = 0x4
+	frameTypeWebTransportStream = 0x41 // Client-initiated bidirectional stream
+)
+
 type frame interface{}
 
 func parseNextFrame(b io.Reader) (frame, error) {
@@ -42,12 +49,14 @@ func parseNextFrame(b io.Reader) (frame, error) {
 	}
 
 	switch t {
-	case 0x0:
+	case frameTypeData:
 		return &dataFrame{Length: l}, nil
-	case 0x1:
+	case frameTypeHeaders:
 		return &headersFrame{Length: l}, nil
-	case 0x4:
+	case frameTypeSettings:
 		return parseSettingsFrame(br, l)
+	case frameTypeWebTransportStream: // WEBTRANSPORT_STREAM
+		return &webTransportStreamFrame{StreamID: protocol.StreamID(l)}, nil
 	case 0x3: // CANCEL_PUSH
 		fallthrough
 	case 0x5: // PUSH_PROMISE
@@ -72,7 +81,7 @@ type dataFrame struct {
 }
 
 func (f *dataFrame) Write(b *bytes.Buffer) {
-	quicvarint.Write(b, 0x0)
+	quicvarint.Write(b, frameTypeData)
 	quicvarint.Write(b, f.Length)
 }
 
@@ -81,7 +90,7 @@ type headersFrame struct {
 }
 
 func (f *headersFrame) Write(b *bytes.Buffer) {
-	quicvarint.Write(b, 0x1)
+	quicvarint.Write(b, frameTypeHeaders)
 	quicvarint.Write(b, f.Length)
 }
 
@@ -160,7 +169,7 @@ func parseSettingsFrame(r io.Reader, l uint64) (*settingsFrame, error) {
 }
 
 func (f *settingsFrame) Write(b *bytes.Buffer) {
-	quicvarint.Write(b, 0x4)
+	quicvarint.Write(b, frameTypeSettings)
 	var l protocol.ByteCount
 	for id, val := range f.other {
 		l += quicvarint.Len(id) + quicvarint.Len(val)
@@ -184,4 +193,14 @@ func (f *settingsFrame) Write(b *bytes.Buffer) {
 		quicvarint.Write(b, id)
 		quicvarint.Write(b, val)
 	}
+}
+
+// https://tools.ietf.org/id/draft-vvv-webtransport-http3-03.html#name-client-initiated-bidirectio
+type webTransportStreamFrame struct {
+	StreamID protocol.StreamID
+}
+
+func (f *webTransportStreamFrame) Write(b *bytes.Buffer) {
+	quicvarint.Write(b, frameTypeWebTransportStream)
+	quicvarint.Write(b, uint64(f.StreamID))
 }

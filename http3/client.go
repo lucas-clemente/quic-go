@@ -102,6 +102,41 @@ func newClient(
 	}, nil
 }
 
+// NewClient is a public method allowing creation of a client (RoundTripper) for
+// a EarlySession accepted by the low level library.
+// It is the equivalent of x.net.http2/NewClientConn.
+//
+// The low library may handle the receiving of datagrams/messages, and
+// may handle accepting streams, and it may open streams.
+//
+// The H3 Client will open streams and handle accepting uni-streams for push.
+func NewClient(hostname string, sess quic.EarlySession, quicConfig *quic.Config) http.RoundTripper {
+	if quicConfig == nil {
+		quicConfig = defaultQuicConfig.Clone()
+	} else if len(quicConfig.Versions) == 0 {
+		quicConfig = quicConfig.Clone()
+		quicConfig.Versions = []quic.VersionNumber{defaultQuicConfig.Versions[0]}
+	}
+
+	logger := utils.DefaultLogger.WithPrefix("h3 client")
+	return &client {
+		hostname:      authorityAddr("https", hostname),
+		//tlsConf:       tlsConf,
+		requestWriter: newRequestWriter(logger),
+		decoder:       qpack.NewDecoder(func(hf qpack.HeaderField) {}),
+		config:        quicConfig,
+		opts:          &roundTripperOpts{
+			EnableDatagram:     true,
+			DisableCompression: true,
+			MaxHeaderBytes:     0,
+		},
+		dialer: func(network, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlySession, error) {
+			return sess, nil
+		},
+		logger:        logger,
+	}
+}
+
 func (c *client) dial() error {
 	var err error
 	if c.dialer != nil {

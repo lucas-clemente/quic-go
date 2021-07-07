@@ -133,6 +133,25 @@ func (s *Server) Serve(conn net.PacketConn) error {
 	return s.serveImpl(s.TLSConfig, conn)
 }
 
+// Init will initialize the Server without handling the accept or doing any
+// other PacketConn-level operation.
+//
+// The server will be used with low-level library accepting sessions, using
+// HandleConn().
+func (s *Server) Init() {
+	s.logger = utils.DefaultLogger.WithPrefix("server")
+	quicConf := s.QuicConfig
+	if quicConf == nil {
+		quicConf = &quic.Config{}
+	} else {
+		quicConf = s.QuicConfig.Clone()
+	}
+	if s.EnableDatagrams {
+		quicConf.EnableDatagrams = true
+	}
+
+}
+
 func (s *Server) serveImpl(tlsConf *tls.Config, conn net.PacketConn) error {
 	if s.closed.Get() {
 		return http.ErrServerClosed
@@ -225,6 +244,14 @@ func (s *Server) removeListener(l *quic.EarlyListener) {
 	s.mutex.Unlock()
 }
 
+// HandleConn can be used with sessions accepted with a quic EarlyListener, if accepting
+// is done using the low-level library.
+// The server will handle all accepted streams. Caller can open streams and send/receive
+// datagrams.
+func (s *Server) HandleConn(sess quic.EarlySession) {
+	s.handleConn(sess)
+}
+
 func (s *Server) handleConn(sess quic.EarlySession) {
 	decoder := qpack.NewDecoder(nil)
 
@@ -254,7 +281,7 @@ func (s *Server) handleConn(sess quic.EarlySession) {
 				sess.CloseWithError(quic.ApplicationErrorCode(errorFrameUnexpected), "")
 			})
 			if rerr.err != nil || rerr.streamErr != 0 || rerr.connErr != 0 {
-				s.logger.Debugf("Handling request failed: %s", err)
+				s.logger.Debugf("Handling request failed: %s", rerr.err)
 				if rerr.streamErr != 0 {
 					str.CancelWrite(quic.StreamErrorCode(rerr.streamErr))
 				}
@@ -328,6 +355,33 @@ func (s *Server) maxHeaderBytes() uint64 {
 		return http.DefaultMaxHeaderBytes
 	}
 	return uint64(s.Server.MaxHeaderBytes)
+}
+
+func (s *Server) HandleRequest(sess quic.Session, str quic.Stream, decoder *qpack.Decoder, onDone func()) requestError {
+	rerr := s.handleRequest(sess, str, decoder, func() {
+		sess.CloseWithError(quic.ErrorCode(errorFrameUnexpected), "")
+	})
+	if rerr.err != nil || rerr.streamErr != 0 || rerr.connErr != 0 {
+		s.logger.Debugf("Handling request failed: %v", rerr)
+		if rerr.streamErr != 0 {
+			str.CancelWrite(quic.ErrorCode(rerr.streamErr))
+		}
+		if rerr.connErr != 0 {
+			var reason string
+			if rerr.err != nil {
+				reason = rerr.err.Error()
+			}
+			sess.CloseWithError(quic.ErrorCode(rerr.connErr), reason)
+		}
+		return rerr
+	}
+	str.Close()
+
+	if onDone != nil {
+		onDone()
+	}
+
+	return rerr
 }
 
 func (s *Server) handleRequest(sess quic.Session, str quic.Stream, decoder *qpack.Decoder, onFrameError func()) requestError {

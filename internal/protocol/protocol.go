@@ -59,7 +59,7 @@ type StatelessResetToken [16]byte
 // ethernet's max size, minus the IP and UDP headers. IPv6 has a 40 byte header,
 // UDP adds an additional 8 bytes.  This is a total overhead of 48 bytes.
 // Ethernet's max packet size is 1500 bytes,  1500 - 48 = 1452.
-const MaxPacketBufferSize ByteCount = 1452
+var MaxPacketBufferSize ByteCount = 9000//1452
 
 // MinInitialPacketSize is the minimum size an Initial packet is required to have.
 const MinInitialPacketSize = 1200

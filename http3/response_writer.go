@@ -3,6 +3,7 @@ package http3
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,24 +24,35 @@ type DataStreamer interface {
 	DataStream() quic.Stream
 }
 
-// The DatagramWriter interface is implemented by ResponseWriters that allow an
-// HTTP handler to send QUIC datagrams from the underlying connection.
+// The Session interface is implemented by ResponseWriters that allow an
+// HTTP handler to accept or create streams, or send and receive datagrams,
+// for example to implement the WebTransport spec.
 // Both endpoints need to negotiate datagram support in order for this to work.
-type DatagramWriter interface {
-	WriteDatagram([]byte) error
+type Session interface {
+	SessionID() SessionID
+
+	AcceptStream(context.Context) (quic.Stream, error)
+	AcceptUniStream(context.Context) (quic.ReceiveStream, error)
+
+	SendMessage([]byte) error
+	ReceiveMessage() ([]byte, error)
 }
 
 // The DatagramReader interface is implemented by ResponseWriters that allow an
 // HTTP handler to receive QUIC datagrams from the underlying connection.
 // Both endpoints need to negotiate datagram support in order for this to work.
 type DatagramReader interface {
-	ReadDatagram() ([]byte, error)
 }
 
 type responseWriter struct {
+	session quic.Session // needed to allow access to datagram sending / receiving
+
 	stream         quic.Stream // needed for DataStream()
 	bufferedStream *bufio.Writer
-	session        quic.Session // needed to allow access to datagram sending / receiving
+
+	incomingStreams    chan quic.Stream
+	incomingUniStreams chan quic.ReceiveStream
+	incomingDatagrams  chan []byte
 
 	header         http.Header
 	status         int // status code passed to WriteHeader
@@ -54,17 +66,24 @@ var (
 	_ http.ResponseWriter = &responseWriter{}
 	_ http.Flusher        = &responseWriter{}
 	_ DataStreamer        = &responseWriter{}
-	_ DatagramWriter      = &responseWriter{}
-	_ DatagramReader      = &responseWriter{}
+	_ Session             = &responseWriter{}
+)
+
+const (
+	maxBufferedStreams   = 4
+	maxBufferedDatagrams = 4
 )
 
 func newResponseWriter(session quic.Session, stream quic.Stream, logger utils.Logger) *responseWriter {
 	return &responseWriter{
-		header:         http.Header{},
-		stream:         stream,
-		bufferedStream: bufio.NewWriter(stream),
-		session:        session,
-		logger:         logger,
+		session:            session,
+		header:             http.Header{},
+		stream:             stream,
+		bufferedStream:     bufio.NewWriter(stream),
+		incomingStreams:    make(chan quic.Stream, maxBufferedStreams),
+		incomingUniStreams: make(chan quic.ReceiveStream, maxBufferedStreams),
+		incomingDatagrams:  make(chan []byte, maxBufferedDatagrams),
+		logger:             logger,
 	}
 }
 
@@ -138,12 +157,56 @@ func (w *responseWriter) DataStream() quic.Stream {
 	return w.stream
 }
 
-func (w *responseWriter) WriteDatagram(b []byte) error {
+func (w *responseWriter) SessionID() SessionID {
+	return w.stream.StreamID()
+}
+
+func (w *responseWriter) addIncomingStream(str quic.Stream) error {
+	select {
+	case w.incomingStreams <- str:
+	case <-w.session.Context().Done():
+		return w.session.Context().Err()
+	}
+	return nil
+}
+
+func (w *responseWriter) addIncomingUniStream(str quic.ReceiveStream) error {
+	select {
+	case w.incomingUniStreams <- str:
+	case <-w.session.Context().Done():
+		return w.session.Context().Err()
+	}
+	return nil
+}
+
+func (w *responseWriter) AcceptStream(ctx context.Context) (quic.Stream, error) {
+	select {
+	case str := <-w.incomingStreams:
+		return str, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-w.session.Context().Done():
+		return nil, w.session.Context().Err()
+	}
+}
+
+func (w *responseWriter) AcceptUniStream(ctx context.Context) (quic.ReceiveStream, error) {
+	select {
+	case str := <-w.incomingUniStreams:
+		return str, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-w.session.Context().Done():
+		return nil, w.session.Context().Err()
+	}
+}
+
+func (w *responseWriter) SendMessage(b []byte) error {
 	// FIXME: write the flow identifier
 	return w.session.SendMessage(b)
 }
 
-func (w *responseWriter) ReadDatagram() ([]byte, error) {
+func (w *responseWriter) ReceiveMessage() ([]byte, error) {
 	// FIXME: read the flow identifier
 	return w.session.ReceiveMessage()
 }

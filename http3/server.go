@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -20,7 +21,6 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/quicvarint"
-	"github.com/marten-seemann/qpack"
 )
 
 // allows mocking of quic.Listen and quic.ListenAddr
@@ -40,9 +40,6 @@ const (
 	streamTypeQPACKEncoderStream   = 2
 	streamTypeQPACKDecoderStream   = 3
 	streamTypeUnidirectionalStream = 0x54
-	streamTypeWebTransportStream   = 0x41 // Client-initiated bidirectional
-	// There is no definition for server-initiated bidirectional streams.
-	// See https://tools.ietf.org/id/draft-vvv-webtransport-http3-03.html#section-4.3.
 )
 
 func versionToALPN(v protocol.VersionNumber) string {
@@ -242,10 +239,10 @@ func (s *Server) removeListener(l *quic.EarlyListener) {
 }
 
 func (s *Server) handleConn(sess quic.EarlySession) {
-	decoder := qpack.NewDecoder(nil)
+	conn := newServerConn(sess, s.logger)
 
 	// send a SETTINGS frame
-	str, err := sess.OpenUniStream()
+	str, err := conn.OpenUniStream()
 	if err != nil {
 		s.logger.Debugf("Opening the control stream failed.")
 		return
@@ -258,20 +255,44 @@ func (s *Server) handleConn(sess quic.EarlySession) {
 	}).Write(buf)
 	str.Write(buf.Bytes())
 
-	go s.handleUnidirectionalStreams(sess)
+	go s.handleUnidirectionalStreams(conn)
 
 	// Process all requests immediately.
 	// It's the client's responsibility to decide which requests are eligible for 0-RTT.
 	for {
-		str, err := sess.AcceptStream(context.Background())
+		str, err := conn.AcceptStream(context.Background())
 		if err != nil {
 			s.logger.Debugf("Accepting stream failed: %s", err)
 			return
 		}
-		go func() {
-			rerr := s.handleRequest(sess, str, decoder, func() {
-				sess.CloseWithError(quic.ApplicationErrorCode(errorFrameUnexpected), "")
-			})
+		go func(str quic.Stream) {
+			var rerr requestError
+
+			frame, err := parseNextFrame(str)
+			if err != nil {
+				rerr = newStreamError(errorRequestIncomplete, err)
+			}
+
+			switch frame := frame.(type) {
+			case *webTransportStreamFrame:
+				s.logger.Debugf("incoming WEBTRANSPORT_STREAM %d with session ID %d", str.StreamID(), frame.StreamID)
+				rw := conn.getResponseWriter(frame.StreamID)
+				if rw != nil {
+					err = rw.addIncomingStream(str)
+					if err != nil {
+						rerr = newStreamError(errorGeneralProtocolError, err)
+					} else {
+						return // Hand the incoming stream to rw
+					}
+				}
+			case *headersFrame:
+				rerr = s.handleRequest(conn, str, frame, func() {
+					conn.CloseWithError(quic.ApplicationErrorCode(errorFrameUnexpected), "")
+				})
+			default:
+				rerr = newConnError(errorFrameUnexpected, fmt.Errorf("unexpected HTTP/3 frame type: %x", reflect.ValueOf(&frame).Elem().Type().Name()))
+			}
+
 			if rerr.err != nil || rerr.streamErr != 0 || rerr.connErr != 0 {
 				s.logger.Debugf("Handling request failed: %s", rerr.err)
 				if rerr.streamErr != 0 {
@@ -282,18 +303,18 @@ func (s *Server) handleConn(sess quic.EarlySession) {
 					if rerr.err != nil {
 						reason = rerr.err.Error()
 					}
-					sess.CloseWithError(quic.ApplicationErrorCode(rerr.connErr), reason)
+					conn.CloseWithError(quic.ApplicationErrorCode(rerr.connErr), reason)
 				}
 				return
 			}
 			str.Close()
-		}()
+		}(str)
 	}
 }
 
-func (s *Server) handleUnidirectionalStreams(sess quic.EarlySession) {
+func (s *Server) handleUnidirectionalStreams(conn *serverConn) {
 	for {
-		str, err := sess.AcceptUniStream(context.Background())
+		str, err := conn.AcceptUniStream(context.Background())
 		if err != nil {
 			s.logger.Debugf("accepting unidirectional stream failed: %s", err)
 			return
@@ -313,7 +334,7 @@ func (s *Server) handleUnidirectionalStreams(sess quic.EarlySession) {
 				// TODO: check that only one stream of each type is opened.
 				return
 			case streamTypePushStream: // only the server can push
-				sess.CloseWithError(quic.ApplicationErrorCode(errorStreamCreationError), "")
+				conn.CloseWithError(quic.ApplicationErrorCode(errorStreamCreationError), "")
 				return
 			case streamTypeUnidirectionalStream:
 				s.logger.Debugf("Opened client unidirectional stream: %v", str.StreamID())
@@ -324,12 +345,12 @@ func (s *Server) handleUnidirectionalStreams(sess quic.EarlySession) {
 			}
 			f, err := parseNextFrame(str)
 			if err != nil {
-				sess.CloseWithError(quic.ApplicationErrorCode(errorFrameError), "")
+				conn.CloseWithError(quic.ApplicationErrorCode(errorFrameError), "")
 				return
 			}
 			sf, ok := f.(*settingsFrame)
 			if !ok {
-				sess.CloseWithError(quic.ApplicationErrorCode(errorMissingSettings), "")
+				conn.CloseWithError(quic.ApplicationErrorCode(errorMissingSettings), "")
 				return
 			}
 			if !sf.Datagram {
@@ -338,8 +359,8 @@ func (s *Server) handleUnidirectionalStreams(sess quic.EarlySession) {
 			// If datagram support was enabled on our side as well as on the client side,
 			// we can expect it to have been negotiated both on the transport and on the HTTP/3 layer.
 			// Note: ConnectionState() will block until the handshake is complete (relevant when using 0-RTT).
-			if s.EnableDatagrams && !sess.ConnectionState().SupportsDatagrams {
-				sess.CloseWithError(quic.ApplicationErrorCode(errorSettingsError), "missing QUIC Datagram support")
+			if s.EnableDatagrams && !conn.ConnectionState().SupportsDatagrams {
+				conn.CloseWithError(quic.ApplicationErrorCode(errorSettingsError), "missing QUIC Datagram support")
 			}
 		}(str)
 	}
@@ -352,15 +373,7 @@ func (s *Server) maxHeaderBytes() uint64 {
 	return uint64(s.Server.MaxHeaderBytes)
 }
 
-func (s *Server) handleRequest(sess quic.Session, str quic.Stream, decoder *qpack.Decoder, onFrameError func()) requestError {
-	frame, err := parseNextFrame(str)
-	if err != nil {
-		return newStreamError(errorRequestIncomplete, err)
-	}
-	hf, ok := frame.(*headersFrame)
-	if !ok {
-		return newConnError(errorFrameUnexpected, errors.New("expected first frame to be a HEADERS frame"))
-	}
+func (s *Server) handleRequest(conn *serverConn, str quic.Stream, hf *headersFrame, onFrameError func()) requestError {
 	if hf.Length > s.maxHeaderBytes() {
 		return newStreamError(errorFrameError, fmt.Errorf("HEADERS frame too large: %d bytes (max: %d)", hf.Length, s.maxHeaderBytes()))
 	}
@@ -368,7 +381,7 @@ func (s *Server) handleRequest(sess quic.Session, str quic.Stream, decoder *qpac
 	if _, err := io.ReadFull(str, headerBlock); err != nil {
 		return newStreamError(errorRequestIncomplete, err)
 	}
-	hfs, err := decoder.DecodeFull(headerBlock)
+	hfs, err := conn.decoder.DecodeFull(headerBlock)
 	if err != nil {
 		// TODO: use the right error code
 		return newConnError(errorGeneralProtocolError, err)
@@ -379,7 +392,7 @@ func (s *Server) handleRequest(sess quic.Session, str quic.Stream, decoder *qpac
 		return newStreamError(errorGeneralProtocolError, err)
 	}
 
-	req.RemoteAddr = sess.RemoteAddr().String()
+	req.RemoteAddr = conn.RemoteAddr().String()
 	req.Body = newRequestBody(str, onFrameError)
 
 	if s.logger.Debug() {
@@ -390,10 +403,13 @@ func (s *Server) handleRequest(sess quic.Session, str quic.Stream, decoder *qpac
 
 	ctx := str.Context()
 	ctx = context.WithValue(ctx, ServerContextKey, s)
-	ctx = context.WithValue(ctx, http.LocalAddrContextKey, sess.LocalAddr())
+	ctx = context.WithValue(ctx, http.LocalAddrContextKey, conn.LocalAddr())
 	req = req.WithContext(ctx)
-	r := newResponseWriter(sess, str, s.logger)
+	r := newResponseWriter(conn, str, s.logger)
+	sessionID := SessionID(str.StreamID())
+	conn.addResponseWriter(sessionID, r)
 	defer func() {
+		conn.deleteResponseWriter(sessionID)
 		if !r.usedDataStream() {
 			r.Flush()
 		}

@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 
 	"github.com/lucas-clemente/quic-go/internal/protocol"
+	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/quicvarint"
 )
 
@@ -29,7 +30,9 @@ const (
 	frameTypeData               = 0x0
 	frameTypeHeaders            = 0x1
 	frameTypeSettings           = 0x4
-	frameTypeWebTransportStream = 0x41 // Client-initiated bidirectional stream
+	frameTypeWebTransportStream = 0x41     // Client-initiated bidirectional stream
+	frameTypeCapsule            = 0xffcab5 // MASQUE capsule frames
+	// https://www.ietf.org/archive/id/draft-ietf-masque-h3-datagram-02.html#name-capsule-http-3-frame-defini
 )
 
 type frame interface{}
@@ -57,6 +60,9 @@ func parseNextFrame(b io.Reader) (frame, error) {
 		return parseSettingsFrame(br, l)
 	case frameTypeWebTransportStream: // WEBTRANSPORT_STREAM
 		return &webTransportStreamFrame{StreamID: protocol.StreamID(l)}, nil
+	case frameTypeCapsule:
+		utils.DefaultLogger.Debugf("CAPSULE HTTP/3 frame received")
+		fallthrough // FIXME: process CAPSULE frames
 	case 0x3: // CANCEL_PUSH
 		fallthrough
 	case 0x5: // PUSH_PROMISE

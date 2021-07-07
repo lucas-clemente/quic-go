@@ -47,7 +47,7 @@ type RoundTripper struct {
 	EnableDatagrams bool
 
 	// Enable support for HTTP/3 WebTransport.
-	// If set to true, the H3 ENABLE_WEBTRANSPORT setting will be set.
+	// If set to true, QuicConfig.MaxIncomingStreams will be set to a positive value. FIXME: actually do this!
 	// See https://www.ietf.org/archive/id/draft-vvv-webtransport-http3-03.html.
 	EnableWebTransport bool
 

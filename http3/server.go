@@ -321,7 +321,8 @@ func (s *Server) handleUnidirectionalStreams(conn *serverConn) {
 		}
 
 		go func(str quic.ReceiveStream) {
-			streamType, err := quicvarint.Read(&byteReaderImpl{str})
+			br := &byteReaderImpl{str}
+			streamType, err := quicvarint.Read(br)
 			if err != nil {
 				s.logger.Debugf("reading stream type on stream %d failed: %s", str.StreamID(), err)
 				return
@@ -338,7 +339,25 @@ func (s *Server) handleUnidirectionalStreams(conn *serverConn) {
 				return
 			case streamTypeUnidirectionalStream:
 				s.logger.Debugf("Opened client unidirectional stream: %v", str.StreamID())
-				return // FIXME: do something here
+				sessionID, err := quicvarint.Read(br)
+				if err != nil {
+					s.logger.Debugf("reading session ID on stream %d failed: %s", str.StreamID(), err)
+					str.CancelRead(quic.StreamErrorCode(errorFrameError))
+					return
+				}
+				rw := conn.getResponseWriter(SessionID(sessionID))
+				if rw == nil {
+					s.logger.Errorf("no request found for session ID %d on stream %d", sessionID, str.StreamID())
+					str.CancelRead(quic.StreamErrorCode(errorFrameError))
+					return
+				}
+				err = rw.addIncomingUniStream(str)
+				if err != nil {
+					s.logger.Debugf("adding stream %d for session ID %s", str.StreamID(), sessionID)
+					str.CancelRead(quic.StreamErrorCode(errorGeneralProtocolError))
+					return
+				}
+				return
 			default:
 				str.CancelRead(quic.StreamErrorCode(errorStreamCreationError))
 				return

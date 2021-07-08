@@ -27,12 +27,17 @@ func (br *byteReaderImpl) ReadByte() (byte, error) {
 }
 
 const (
-	frameTypeData               = 0x0
-	frameTypeHeaders            = 0x1
-	frameTypeSettings           = 0x4
-	frameTypeWebTransportStream = 0x41     // Client-initiated bidirectional stream
-	frameTypeCapsule            = 0xffcab5 // MASQUE capsule frames
+	frameTypeData     = 0x0
+	frameTypeHeaders  = 0x1
+	frameTypeSettings = 0x4
+
+	// Bidirectional WebTransport stream via a special indefinite-length frame
+	// https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-01.html#section-7.3
+	frameTypeWebTransportStream = 0x41
+
+	// MASQUE capsule frames
 	// https://www.ietf.org/archive/id/draft-ietf-masque-h3-datagram-02.html#name-capsule-http-3-frame-defini
+	frameTypeCapsule = 0xffcab5
 )
 
 type frame interface{}

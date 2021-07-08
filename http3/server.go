@@ -35,11 +35,14 @@ const (
 )
 
 const (
-	streamTypeControlStream        = 0
-	streamTypePushStream           = 1
-	streamTypeQPACKEncoderStream   = 2
-	streamTypeQPACKDecoderStream   = 3
-	streamTypeUnidirectionalStream = 0x54
+	streamTypeControlStream      = 0
+	streamTypePushStream         = 1
+	streamTypeQPACKEncoderStream = 2
+	streamTypeQPACKDecoderStream = 3
+
+	// Unidirectional WebTransport stream
+	// https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-01.html#section-7.4
+	streamTypeWebTransportStream = 0x54
 )
 
 func versionToALPN(v protocol.VersionNumber) string {
@@ -335,7 +338,7 @@ func (s *Server) handleUnidirectionalStreams(conn *serverConn) {
 			case streamTypePushStream: // only the server can push
 				conn.CloseWithError(quic.ApplicationErrorCode(errorStreamCreationError), "")
 				return
-			case streamTypeUnidirectionalStream:
+			case streamTypeWebTransportStream:
 				sessionID, err := quicvarint.Read(br)
 				if err != nil {
 					s.logger.Debugf("reading session ID on stream %d failed: %s", str.StreamID(), err)

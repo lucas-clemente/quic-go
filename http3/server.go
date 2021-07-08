@@ -142,8 +142,6 @@ func (s *Server) Serve(conn net.PacketConn) error {
 	return s.serveImpl(s.TLSConfig, conn)
 }
 
-const alpnWebTransport = "wq-vvv-01"
-
 func (s *Server) serveImpl(tlsConf *tls.Config, conn net.PacketConn) error {
 	if s.closed.Get() {
 		return http.ErrServerClosed
@@ -183,11 +181,6 @@ func (s *Server) serveImpl(tlsConf *tls.Config, conn net.PacketConn) error {
 			}
 			config = config.Clone()
 			config.NextProtos = []string{proto}
-			if s.EnableWebTransport {
-				config.NextProtos = []string{proto, alpnWebTransport}
-			} else {
-				config.NextProtos = []string{proto}
-			}
 			return config, nil
 		},
 	}

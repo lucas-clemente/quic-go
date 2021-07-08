@@ -26,6 +26,9 @@ const (
 	errorMessageError         errorCode = 0x10e
 	errorConnectError         errorCode = 0x10f
 	errorVersionFallback      errorCode = 0x110
+
+	// https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-01.html#section-7.5
+	errorWebTransportBufferedStreamRejected errorCode = 0x3994bd84
 )
 
 func (e errorCode) String() string {
@@ -64,6 +67,8 @@ func (e errorCode) String() string {
 		return "H3_CONNECT_ERROR"
 	case errorVersionFallback:
 		return "H3_VERSION_FALLBACK"
+	case errorWebTransportBufferedStreamRejected:
+		return "H3_WEBTRANSPORT_BUFFERED_STREAM_REJECTED"
 	default:
 		return fmt.Sprintf("unknown error code: %#x", uint16(e))
 	}

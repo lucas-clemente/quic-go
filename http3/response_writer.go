@@ -3,12 +3,14 @@ package http3
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/internal/utils"
+
 	"github.com/marten-seemann/qpack"
 )
 
@@ -22,7 +24,23 @@ type DataStreamer interface {
 	DataStream() quic.Stream
 }
 
+// The Session interface is implemented by ResponseWriters that allow an
+// HTTP handler to accept or create streams, or send and receive datagrams,
+// for example to implement the WebTransport spec.
+// Both endpoints need to negotiate datagram support in order for this to work.
+type Session interface {
+	SessionID() SessionID
+
+	AcceptStream(context.Context) (quic.Stream, error)
+	AcceptUniStream(context.Context) (quic.ReceiveStream, error)
+
+	SendMessage([]byte) error
+	ReceiveMessage() ([]byte, error)
+}
+
 type responseWriter struct {
+	conn *serverConn // needed to allow access to datagram sending / receiving
+
 	stream         quic.Stream // needed for DataStream()
 	bufferedStream *bufio.Writer
 
@@ -38,10 +56,12 @@ var (
 	_ http.ResponseWriter = &responseWriter{}
 	_ http.Flusher        = &responseWriter{}
 	_ DataStreamer        = &responseWriter{}
+	_ Session             = &responseWriter{}
 )
 
-func newResponseWriter(stream quic.Stream, logger utils.Logger) *responseWriter {
+func newResponseWriter(conn *serverConn, stream quic.Stream, logger utils.Logger) *responseWriter {
 	return &responseWriter{
+		conn:           conn,
 		header:         http.Header{},
 		stream:         stream,
 		bufferedStream: bufio.NewWriter(stream),
@@ -117,6 +137,28 @@ func (w *responseWriter) DataStream() quic.Stream {
 	w.dataStreamUsed = true
 	w.Flush()
 	return w.stream
+}
+
+func (w *responseWriter) SessionID() SessionID {
+	return w.stream.StreamID()
+}
+
+func (w *responseWriter) AcceptStream(ctx context.Context) (quic.Stream, error) {
+	return w.conn.acceptStream(ctx, w.SessionID())
+}
+
+func (w *responseWriter) AcceptUniStream(ctx context.Context) (quic.ReceiveStream, error) {
+	return w.conn.acceptUniStream(ctx, w.SessionID())
+}
+
+func (w *responseWriter) SendMessage(b []byte) error {
+	// FIXME: write the flow identifier
+	return w.conn.SendMessage(b)
+}
+
+func (w *responseWriter) ReceiveMessage() ([]byte, error) {
+	// FIXME: read the flow identifier
+	return w.conn.ReceiveMessage()
 }
 
 // copied from http2/http2.go

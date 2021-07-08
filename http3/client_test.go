@@ -429,7 +429,7 @@ var _ = Describe("Client", func() {
 			buf := &bytes.Buffer{}
 			rstr := mockquic.NewMockStream(mockCtrl)
 			rstr.EXPECT().Write(gomock.Any()).Do(buf.Write).AnyTimes()
-			rw := newResponseWriter(rstr, utils.DefaultLogger)
+			rw := newResponseWriter(nil, rstr, utils.DefaultLogger)
 			rw.WriteHeader(status)
 			rw.Flush()
 			return buf.Bytes()
@@ -715,7 +715,7 @@ var _ = Describe("Client", func() {
 				buf := &bytes.Buffer{}
 				rstr := mockquic.NewMockStream(mockCtrl)
 				rstr.EXPECT().Write(gomock.Any()).Do(buf.Write).AnyTimes()
-				rw := newResponseWriter(rstr, utils.DefaultLogger)
+				rw := newResponseWriter(sess, rstr, utils.DefaultLogger)
 				rw.Header().Set("Content-Encoding", "gzip")
 				gz := gzip.NewWriter(rw)
 				gz.Write([]byte("gzipped response"))
@@ -741,7 +741,7 @@ var _ = Describe("Client", func() {
 				buf := &bytes.Buffer{}
 				rstr := mockquic.NewMockStream(mockCtrl)
 				rstr.EXPECT().Write(gomock.Any()).Do(buf.Write).AnyTimes()
-				rw := newResponseWriter(rstr, utils.DefaultLogger)
+				rw := newResponseWriter(sess, rstr, utils.DefaultLogger)
 				rw.Write([]byte("not gzipped"))
 				rw.Flush()
 				str.EXPECT().Write(gomock.Any()).AnyTimes().DoAndReturn(func(p []byte) (int, error) { return len(p), nil })

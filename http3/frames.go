@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 
 	"github.com/lucas-clemente/quic-go/internal/protocol"
+	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/quicvarint"
 )
 
@@ -25,6 +26,20 @@ func (br *byteReaderImpl) ReadByte() (byte, error) {
 	return b[0], nil
 }
 
+const (
+	frameTypeData     = 0x0
+	frameTypeHeaders  = 0x1
+	frameTypeSettings = 0x4
+
+	// Bidirectional WebTransport stream via a special indefinite-length frame
+	// https://www.ietf.org/archive/id/draft-ietf-webtrans-http3-01.html#section-7.3
+	frameTypeWebTransportStream = 0x41
+
+	// MASQUE capsule frames
+	// https://www.ietf.org/archive/id/draft-ietf-masque-h3-datagram-02.html#name-capsule-http-3-frame-defini
+	frameTypeCapsule = 0xffcab5
+)
+
 type frame interface{}
 
 func parseNextFrame(b io.Reader) (frame, error) {
@@ -42,12 +57,17 @@ func parseNextFrame(b io.Reader) (frame, error) {
 	}
 
 	switch t {
-	case 0x0:
+	case frameTypeData:
 		return &dataFrame{Length: l}, nil
-	case 0x1:
+	case frameTypeHeaders:
 		return &headersFrame{Length: l}, nil
-	case 0x4:
+	case frameTypeSettings:
 		return parseSettingsFrame(br, l)
+	case frameTypeWebTransportStream: // WEBTRANSPORT_STREAM
+		return &webTransportStreamFrame{StreamID: protocol.StreamID(l)}, nil
+	case frameTypeCapsule:
+		utils.DefaultLogger.Debugf("CAPSULE HTTP/3 frame received")
+		fallthrough // FIXME: process CAPSULE frames
 	case 0x3: // CANCEL_PUSH
 		fallthrough
 	case 0x5: // PUSH_PROMISE
@@ -72,7 +92,7 @@ type dataFrame struct {
 }
 
 func (f *dataFrame) Write(b *bytes.Buffer) {
-	quicvarint.Write(b, 0x0)
+	quicvarint.Write(b, frameTypeData)
 	quicvarint.Write(b, f.Length)
 }
 
@@ -81,15 +101,21 @@ type headersFrame struct {
 }
 
 func (f *headersFrame) Write(b *bytes.Buffer) {
-	quicvarint.Write(b, 0x1)
+	quicvarint.Write(b, frameTypeHeaders)
 	quicvarint.Write(b, f.Length)
 }
 
-const settingDatagram = 0x276
+const (
+	settingDatagram = 0x276
+
+	// https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3#section-7.2
+	settingWebTransport = 0x2b603742
+)
 
 type settingsFrame struct {
-	Datagram bool
-	other    map[uint64]uint64 // all settings that we don't explicitly recognize
+	Datagram     bool
+	WebTransport bool
+	other        map[uint64]uint64 // all settings that we don't explicitly recognize
 }
 
 func parseSettingsFrame(r io.Reader, l uint64) (*settingsFrame, error) {
@@ -105,7 +131,7 @@ func parseSettingsFrame(r io.Reader, l uint64) (*settingsFrame, error) {
 	}
 	frame := &settingsFrame{}
 	b := bytes.NewReader(buf)
-	var readDatagram bool
+	var readDatagram, readWebTransport bool
 	for b.Len() > 0 {
 		id, err := quicvarint.Read(b)
 		if err != nil { // should not happen. We allocated the whole frame already.
@@ -126,7 +152,21 @@ func parseSettingsFrame(r io.Reader, l uint64) (*settingsFrame, error) {
 				return nil, fmt.Errorf("invalid value for H3_DATAGRAM: %d", val)
 			}
 			frame.Datagram = val == 1
+		case settingWebTransport:
+			if readWebTransport {
+				return nil, fmt.Errorf("duplicate setting: %d", id)
+			}
+			readWebTransport = true
+			if val != 0 && val != 1 {
+				return nil, fmt.Errorf("invalid value for ENABLE_WEBTRANSPORT: %d", val)
+			}
+			frame.WebTransport = val == 1
 		default:
+			// Ignore reserved setting IDs of the form 0x1f * N + 0x21.
+			// https://datatracker.ietf.org/doc/html/draft-ietf-quic-http-34#section-7.2.4.1
+			if (id-0x21)%0x1f == 0 {
+				continue
+			}
 			if _, ok := frame.other[id]; ok {
 				return nil, fmt.Errorf("duplicate setting: %d", id)
 			}
@@ -140,7 +180,7 @@ func parseSettingsFrame(r io.Reader, l uint64) (*settingsFrame, error) {
 }
 
 func (f *settingsFrame) Write(b *bytes.Buffer) {
-	quicvarint.Write(b, 0x4)
+	quicvarint.Write(b, frameTypeSettings)
 	var l protocol.ByteCount
 	for id, val := range f.other {
 		l += quicvarint.Len(id) + quicvarint.Len(val)
@@ -148,13 +188,30 @@ func (f *settingsFrame) Write(b *bytes.Buffer) {
 	if f.Datagram {
 		l += quicvarint.Len(settingDatagram) + quicvarint.Len(1)
 	}
+	if f.WebTransport {
+		l += quicvarint.Len(settingWebTransport) + quicvarint.Len(1)
+	}
 	quicvarint.Write(b, uint64(l))
 	if f.Datagram {
 		quicvarint.Write(b, settingDatagram)
+		quicvarint.Write(b, 1)
+	}
+	if f.WebTransport {
+		quicvarint.Write(b, settingWebTransport)
 		quicvarint.Write(b, 1)
 	}
 	for id, val := range f.other {
 		quicvarint.Write(b, id)
 		quicvarint.Write(b, val)
 	}
+}
+
+// https://tools.ietf.org/id/draft-vvv-webtransport-http3-03.html#name-client-initiated-bidirectio
+type webTransportStreamFrame struct {
+	StreamID protocol.StreamID
+}
+
+func (f *webTransportStreamFrame) Write(b *bytes.Buffer) {
+	quicvarint.Write(b, frameTypeWebTransportStream)
+	quicvarint.Write(b, uint64(f.StreamID))
 }

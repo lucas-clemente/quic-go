@@ -12,7 +12,7 @@ import (
 )
 
 func requestFromHeaders(headers []qpack.HeaderField) (*http.Request, error) {
-	var path, authority, method, contentLengthStr string
+	var scheme, path, authority, method, protocol, contentLengthStr string
 	httpHeaders := http.Header{}
 
 	for _, h := range headers {
@@ -23,6 +23,10 @@ func requestFromHeaders(headers []qpack.HeaderField) (*http.Request, error) {
 			method = h.Value
 		case ":authority":
 			authority = h.Value
+		case ":protocol":
+			protocol = h.Value
+		case ":scheme":
+			scheme = h.Value
 		case "content-length":
 			contentLengthStr = h.Value
 		default:
@@ -38,7 +42,15 @@ func requestFromHeaders(headers []qpack.HeaderField) (*http.Request, error) {
 	}
 
 	isConnect := method == http.MethodConnect
-	if isConnect {
+	hasProtocol := protocol != ""
+	// Support extended CONNECT for WebTransport or WebSocket protocols.
+	// TODO: should :protocol support be flagged on Server?
+	// https://datatracker.ietf.org/doc/html/rfc8441#section-4
+	if isConnect && hasProtocol {
+		if path == "" || scheme == "" {
+			return nil, errors.New(":scheme and :path must not be empty when :protocol is set")
+		}
+	} else if isConnect {
 		if path != "" || authority == "" {
 			return nil, errors.New(":path must be empty and :authority must not be empty")
 		}
@@ -50,7 +62,7 @@ func requestFromHeaders(headers []qpack.HeaderField) (*http.Request, error) {
 	var requestURI string
 	var err error
 
-	if isConnect {
+	if isConnect && !hasProtocol {
 		u = &url.URL{Host: authority}
 		requestURI = authority
 	} else {

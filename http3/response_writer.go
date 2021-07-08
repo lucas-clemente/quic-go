@@ -38,12 +38,6 @@ type Session interface {
 	ReceiveMessage() ([]byte, error)
 }
 
-// The DatagramReader interface is implemented by ResponseWriters that allow an
-// HTTP handler to receive QUIC datagrams from the underlying connection.
-// Both endpoints need to negotiate datagram support in order for this to work.
-type DatagramReader interface {
-}
-
 type responseWriter struct {
 	conn *serverConn // needed to allow access to datagram sending / receiving
 

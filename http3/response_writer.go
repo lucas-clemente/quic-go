@@ -150,11 +150,11 @@ func (w *responseWriter) SessionID() SessionID {
 }
 
 func (w *responseWriter) AcceptStream(ctx context.Context) (quic.Stream, error) {
-	return w.conn.acceptStream(ctx, w.stream.StreamID())
+	return w.conn.acceptStream(ctx, w.SessionID())
 }
 
 func (w *responseWriter) AcceptUniStream(ctx context.Context) (quic.ReceiveStream, error) {
-	return w.conn.acceptUniStream(ctx, w.stream.StreamID())
+	return w.conn.acceptUniStream(ctx, w.SessionID())
 }
 
 func (w *responseWriter) SendMessage(b []byte) error {

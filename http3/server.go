@@ -276,15 +276,13 @@ func (s *Server) handleConn(sess quic.EarlySession) {
 			switch frame := frame.(type) {
 			case *webTransportStreamFrame:
 				s.logger.Debugf("incoming WEBTRANSPORT_STREAM %d with session ID %d", str.StreamID(), frame.StreamID)
-				rw := conn.getResponseWriter(frame.StreamID)
-				if rw != nil {
-					err = rw.addIncomingStream(str)
-					if err != nil {
-						rerr = newStreamError(errorGeneralProtocolError, err)
-					} else {
-						return // Hand the incoming stream to rw
-					}
+				err = conn.addIncomingStream(frame.StreamID, str)
+				if err != nil {
+					rerr = newStreamError(errorWebTransportBufferedStreamRejected, err)
+				} else {
+					return // Hand the incoming stream to rw
 				}
+
 			case *headersFrame:
 				rerr = s.handleRequest(conn, str, frame, func() {
 					conn.CloseWithError(quic.ApplicationErrorCode(errorFrameUnexpected), "")
@@ -338,23 +336,17 @@ func (s *Server) handleUnidirectionalStreams(conn *serverConn) {
 				conn.CloseWithError(quic.ApplicationErrorCode(errorStreamCreationError), "")
 				return
 			case streamTypeUnidirectionalStream:
-				s.logger.Debugf("Opened client unidirectional stream: %v", str.StreamID())
 				sessionID, err := quicvarint.Read(br)
 				if err != nil {
 					s.logger.Debugf("reading session ID on stream %d failed: %s", str.StreamID(), err)
 					str.CancelRead(quic.StreamErrorCode(errorFrameError))
 					return
 				}
-				rw := conn.getResponseWriter(SessionID(sessionID))
-				if rw == nil {
-					s.logger.Errorf("no request found for session ID %d on stream %d", sessionID, str.StreamID())
-					str.CancelRead(quic.StreamErrorCode(errorFrameError))
-					return
-				}
-				err = rw.addIncomingUniStream(str)
+				s.logger.Debugf("incoming unidirectional WebTransport stream %d with session ID %d", str.StreamID(), sessionID)
+				err = conn.addIncomingUniStream(SessionID(sessionID), str)
 				if err != nil {
-					s.logger.Debugf("adding stream %d for session ID %s", str.StreamID(), sessionID)
-					str.CancelRead(quic.StreamErrorCode(errorGeneralProtocolError))
+					s.logger.Debugf("error adding stream %d for session ID %s: %s", str.StreamID(), sessionID, err)
+					str.CancelRead(quic.StreamErrorCode(errorWebTransportBufferedStreamRejected))
 					return
 				}
 				return
@@ -426,9 +418,8 @@ func (s *Server) handleRequest(conn *serverConn, str quic.Stream, hf *headersFra
 	req = req.WithContext(ctx)
 	r := newResponseWriter(conn, str, s.logger)
 	sessionID := SessionID(str.StreamID())
-	conn.addResponseWriter(sessionID, r)
 	defer func() {
-		conn.deleteResponseWriter(sessionID)
+		conn.cleanup(sessionID)
 		if !r.usedDataStream() {
 			r.Flush()
 		}

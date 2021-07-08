@@ -45,14 +45,10 @@ type DatagramReader interface {
 }
 
 type responseWriter struct {
-	session quic.Session // needed to allow access to datagram sending / receiving
+	conn *serverConn // needed to allow access to datagram sending / receiving
 
 	stream         quic.Stream // needed for DataStream()
 	bufferedStream *bufio.Writer
-
-	incomingStreams    chan quic.Stream
-	incomingUniStreams chan quic.ReceiveStream
-	incomingDatagrams  chan []byte
 
 	header         http.Header
 	status         int // status code passed to WriteHeader
@@ -69,21 +65,13 @@ var (
 	_ Session             = &responseWriter{}
 )
 
-const (
-	maxBufferedStreams   = 4
-	maxBufferedDatagrams = 4
-)
-
-func newResponseWriter(session quic.Session, stream quic.Stream, logger utils.Logger) *responseWriter {
+func newResponseWriter(conn *serverConn, stream quic.Stream, logger utils.Logger) *responseWriter {
 	return &responseWriter{
-		session:            session,
-		header:             http.Header{},
-		stream:             stream,
-		bufferedStream:     bufio.NewWriter(stream),
-		incomingStreams:    make(chan quic.Stream, maxBufferedStreams),
-		incomingUniStreams: make(chan quic.ReceiveStream, maxBufferedStreams),
-		incomingDatagrams:  make(chan []byte, maxBufferedDatagrams),
-		logger:             logger,
+		conn:           conn,
+		header:         http.Header{},
+		stream:         stream,
+		bufferedStream: bufio.NewWriter(stream),
+		logger:         logger,
 	}
 }
 
@@ -161,54 +149,22 @@ func (w *responseWriter) SessionID() SessionID {
 	return w.stream.StreamID()
 }
 
-func (w *responseWriter) addIncomingStream(str quic.Stream) error {
-	select {
-	case w.incomingStreams <- str:
-	case <-w.session.Context().Done():
-		return w.session.Context().Err()
-	}
-	return nil
-}
-
-func (w *responseWriter) addIncomingUniStream(str quic.ReceiveStream) error {
-	select {
-	case w.incomingUniStreams <- str:
-	case <-w.session.Context().Done():
-		return w.session.Context().Err()
-	}
-	return nil
-}
-
 func (w *responseWriter) AcceptStream(ctx context.Context) (quic.Stream, error) {
-	select {
-	case str := <-w.incomingStreams:
-		return str, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-w.session.Context().Done():
-		return nil, w.session.Context().Err()
-	}
+	return w.conn.acceptStream(ctx, w.stream.StreamID())
 }
 
 func (w *responseWriter) AcceptUniStream(ctx context.Context) (quic.ReceiveStream, error) {
-	select {
-	case str := <-w.incomingUniStreams:
-		return str, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-w.session.Context().Done():
-		return nil, w.session.Context().Err()
-	}
+	return w.conn.acceptUniStream(ctx, w.stream.StreamID())
 }
 
 func (w *responseWriter) SendMessage(b []byte) error {
 	// FIXME: write the flow identifier
-	return w.session.SendMessage(b)
+	return w.conn.SendMessage(b)
 }
 
 func (w *responseWriter) ReceiveMessage() ([]byte, error) {
 	// FIXME: read the flow identifier
-	return w.session.ReceiveMessage()
+	return w.conn.ReceiveMessage()
 }
 
 // copied from http2/http2.go

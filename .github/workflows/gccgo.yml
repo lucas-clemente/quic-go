@@ -1,0 +1,14 @@
+on: [push, pull_request]
+jobs:
+  gccgo:
+    runs-on: ubuntu-latest
+    name: "gccgo Build"
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install build utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib gccgo
+      - run: go-10 version
+      - name: Run build
+        run: go-10 build example/main.go

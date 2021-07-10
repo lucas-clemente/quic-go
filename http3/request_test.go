@@ -30,7 +30,7 @@ var _ = Describe("Request", func() {
 		Expect(req.Body).To(BeNil())
 		Expect(req.Host).To(Equal("quic.clemente.io"))
 		Expect(req.RequestURI).To(Equal("/foo"))
-		Expect(req.TLS).ToNot(BeNil())
+		Expect(req.TLS).To(BeNil())
 	})
 
 	It("parses path with leading double slashes", func() {

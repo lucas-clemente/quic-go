@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"os"
 	"time"
 
 	"github.com/lucas-clemente/quic-go"
@@ -107,6 +108,32 @@ var _ = Describe("Handshake tests", func() {
 			}
 		}()
 	}
+
+	It("performs a handshake on IPv6", func() {
+		if len(os.Getenv("CIRCLECI")) > 0 {
+			Skip("CircleCI doesn't have IPv6 support.")
+		}
+
+		server, err := quic.ListenAddr("[::1]:0", getTLSConfig(), getQuicConfig(nil))
+		Expect(err).ToNot(HaveOccurred())
+		fmt.Fprintf(GinkgoWriter, "Listening on %s", server.Addr())
+		sessChan := make(chan quic.Session)
+		go func() {
+			defer GinkgoRecover()
+			sess, err := server.Accept(context.Background())
+			Expect(err).ToNot(HaveOccurred())
+			sessChan <- sess
+		}()
+
+		conn, err := net.ListenUDP("udp6", nil)
+		Expect(err).ToNot(HaveOccurred())
+		sess, err := quic.Dial(conn, server.Addr(), "localhost", getTLSClientConfig(), getQuicConfig(nil))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(sess.CloseWithError(0, "")).To(Succeed())
+		var serverSess quic.Session
+		Eventually(sessChan, 5*time.Second).Should(Receive(&serverSess))
+		Eventually(serverSess.Context().Done()).Should(BeClosed())
+	})
 
 	if !israce.Enabled {
 		Context("Version Negotiation", func() {

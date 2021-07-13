@@ -536,6 +536,13 @@ func (h *sentPacketHandler) setLossDetectionTimer() {
 	// PTO alarm
 	ptoTime, encLevel, ok := h.getPTOTimeAndSpace()
 	if !ok {
+		if !oldAlarm.IsZero() {
+			h.alarm = time.Time{}
+			h.logger.Debugf("Canceling loss detection timer. No PTO needed..")
+			if h.tracer != nil {
+				h.tracer.LossTimerCanceled()
+			}
+		}
 		return
 	}
 	h.alarm = ptoTime

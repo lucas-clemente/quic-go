@@ -931,6 +931,17 @@ var _ = Describe("SentPacketHandler", func() {
 			handler.ReceivedPacket(protocol.EncryptionHandshake)
 			Expect(handler.GetLossDetectionTimeout()).ToNot(BeZero())
 		})
+
+		It("cancels the loss detection alarm when all Handshake packets are acknowledged", func() {
+			t := time.Now().Add(-time.Second)
+			handler.ReceivedBytes(99999)
+			handler.SentPacket(ackElicitingPacket(&Packet{PacketNumber: 2, SendTime: t}))
+			handler.SentPacket(handshakePacket(&Packet{PacketNumber: 3, SendTime: t}))
+			handler.SentPacket(handshakePacket(&Packet{PacketNumber: 4, SendTime: t}))
+			Expect(handler.GetLossDetectionTimeout()).ToNot(BeZero())
+			handler.ReceivedAck(&wire.AckFrame{AckRanges: []wire.AckRange{{Smallest: 3, Largest: 4}}}, protocol.EncryptionHandshake, time.Now())
+			Expect(handler.GetLossDetectionTimeout()).To(BeZero())
+		})
 	})
 
 	Context("amplification limit, for the client", func() {

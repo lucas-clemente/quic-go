@@ -7,7 +7,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ "ubuntu", "windows", "macos" ]
-        go: [ "1.15.x", "1.16.x", "1.17.0-beta1" ]
+        go: [ "1.15.x", "1.16.x", "1.17.0-rc1" ]
     runs-on: ${{ matrix.os }}-latest
     name: Unit tests (${{ matrix.os}}, Go ${{ matrix.go }})
     steps:

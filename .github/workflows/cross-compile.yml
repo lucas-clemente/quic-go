@@ -4,7 +4,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: [ "1.15.x", "1.16.x", "1.17.0-beta1" ]
+        go: [ "1.15.x", "1.16.x", "1.17.0-rc1" ]
     runs-on: ubuntu-latest
     name: "Cross Compilation (Go ${{matrix.go}})"
     steps:

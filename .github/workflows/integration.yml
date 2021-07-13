@@ -5,7 +5,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: [ "1.15.x", "1.16.x", "1.17.0-beta1" ]
+        go: [ "1.15.x", "1.16.x", "1.17.0-rc1" ]
     runs-on: ubuntu-latest
     env:
       DEBUG: false # set this to true to export qlogs and save them as artifacts
